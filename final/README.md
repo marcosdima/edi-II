@@ -39,4 +39,4 @@ Repositorio con los proyectos prácticos preparados para la defensa en el examen
 Cada carpeta cuenta con su propio archivo `README.md` con:
 - Explicación técnica y práctica del funcionamiento interno.
 - Guía de demostración paso a paso con comandos listos para copiar y pegar.
-- Banco de preguntas teóricas de examen y respuestas sugeridas.
+- Glosario técnico y conceptos teóricos explicados de forma clara y directa.

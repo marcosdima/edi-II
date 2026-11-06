@@ -62,16 +62,12 @@ cat monitor.log
 
 ---
 
-## 3. Preguntas de Examen (Teoría)
+## 3. Glosario y Conceptos Clave
 
-**¿Por qué usar cURL y no un ping?**  
-`ping` funciona sobre el protocolo ICMP (Capa de Red). Un servidor puede responder al ping perfectamente aunque el servicio web (Apache/Nginx) esté apagado o caído. `curl` consulta directamente el protocolo HTTP (Capa de Aplicación).
-
-**¿Qué significa el código 000 en curl?**  
-Significa que cURL ni siquiera pudo establecer la conexión TCP con el servidor (por ejemplo: error de DNS, timeout o puerto cerrado).
-
-**¿Cuáles son las familias de códigos HTTP más comunes?**  
-- **2xx:** Éxito (ej. 200 OK).
-- **3xx:** Redirección (ej. 301 Moved Permanently).
-- **4xx:** Error del cliente (ej. 404 Not Found, 403 Forbidden).
-- **5xx:** Error del servidor (ej. 500 Internal Server Error, 502 Bad Gateway).
+- **cURL vs Ping:** `ping` opera a nivel de red (ICMP / Capa 3) y solo prueba conectividad básica; `curl` consulta a nivel de aplicación (HTTP/HTTPS / Capa 7), verificando si el servicio web realmente responde.
+- **Código 000:** Indica que cURL no pudo establecer la conexión TCP (servidor apagado, puerto cerrado o error de DNS).
+- **2xx (Éxito):** Petición procesada correctamente (ej. `200 OK`).
+- **3xx (Redirección):** El recurso cambió de ubicación (ej. `301 Moved Permanently`).
+- **4xx (Error del cliente):** Solicitud inválida o recurso no encontrado (ej. `404 Not Found`, `403 Forbidden`).
+- **5xx (Error del servidor):** El servidor falló al procesar la solicitud (ej. `500 Internal Server Error`, `502 Bad Gateway`).
+- **Latencia (Tiempo de respuesta):** Medido en segundos por cURL desde que se inicia la solicitud hasta que se recibe el último byte de respuesta.

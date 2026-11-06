@@ -37,7 +37,7 @@ Cliente (Navegador / cURL)
 ├── nginx_reverse_proxy.conf  # Configuración del VirtualHost de Nginx
 ├── install_and_setup.sh      # Script que instala Nginx, despliega la configuración y certificados
 ├── certs/                    # Carpeta local donde se crean server.crt y server.key
-└── README.md                 # Guía de defensa oral y conceptos teóricos
+└── README.md                 # Guía de defensa y glosario conceptual
 ```
 
 ---
@@ -85,7 +85,7 @@ X-Forwarded-Proto: https
 ========================================
 Status: Request handled successfully via Reverse Proxy.
 ```
-*Nota que el backend recibió `X-Forwarded-Proto: https`. Esto demuestra que Nginx atendió la conexión segura y se la pasó al backend.*
+*El backend recibió `X-Forwarded-Proto: https`. Esto demuestra que Nginx atendió la conexión segura y se la pasó al backend.*
 
 ### Paso 5: Demostración integrada con el Proyecto 01
 Podés usar tu propio script de monitoreo del Proyecto 01 para auditar el servidor:
@@ -96,14 +96,38 @@ Podés usar tu propio script de monitoreo del Proyecto 01 para auditar el servid
 
 ---
 
-## 4. Preguntas Teóricas de Examen
+## 4. Glosario y Conceptos Clave
 
-**¿Qué es un Proxy Reverso y en qué se diferencia de un Proxy Directo (*Forward Proxy*)?**  
-- **Forward Proxy (ej. Squid):** Se ubica del lado del cliente. Los usuarios de una red interna pasan por él para salir a Internet (control de contenidos, caché de navegación, anonimato).
-- **Reverse Proxy (ej. Nginx):** Se ubica del lado del servidor. Los clientes de Internet se conectan al proxy creyendo que es el servidor final; el proxy recibe las peticiones y las reparte a los servidores internos (balanceo de carga, terminación SSL, seguridad).
+### ¿Para qué sirve Nginx?
+Nginx es un servidor web y proxy de alto rendimiento diseñado con una arquitectura asíncrona no bloqueante basada en eventos. Sus usos principales son:
+- **Servidor web:** Sirve archivos estáticos (HTML, CSS, imágenes) a gran velocidad consumiendo muy poca memoria RAM.
+- **Proxy reverso y balanceador:** Se ubica como puerta de entrada única y distribuye las peticiones entre varios servidores de backend (Python, Node.js, PHP, etc.).
+- **Punto central de seguridad:** Gestiona certificados SSL/TLS, cortafuegos de aplicación y límites de tasa de peticiones (*rate limiting*).
 
-**¿Qué es la Terminación SSL (*SSL Termination*)?**  
-Es la práctica donde el proxy reverso (Nginx) se encarga de todo el procesamiento criptográfico pesado del handshake TLS y descifra los datos. Luego, le transfiere el tráfico sin cifrar a través de la red local o loopback (`127.0.0.1`) al backend. Esto libera de consumo de CPU a los servidores de aplicaciones.
+### ¿Qué es un Proxy Reverso (*Reverse Proxy*)?
+Es un intermediario que se coloca **delante** de uno o más servidores de aplicaciones.
+- Para el cliente externo (navegador o cURL), Nginx **es** el servidor web de destino.
+- Nginx recibe la petición, la procesa y la reenvía internamente al servicio correspondiente (`proxy_pass http://127.0.0.1:8080`).
+- **Diferencia con Forward Proxy (ej. Squid):**
+  - *Forward Proxy:* Se coloca del lado de los clientes de una red interna para controlar y filtrar cómo acceden a Internet.
+  - *Reverse Proxy:* Se coloca del lado de los servidores para recibir y distribuir las visitas que llegan desde Internet hacia los servicios internos.
 
-**¿Por qué son necesarias las directivas `proxy_set_header`?**  
-Cuando Nginx reenvía la petición al backend, la conexión TCP se origina en la IP de Nginx (`127.0.0.1`). Si el backend mirara la IP de origen, creería que todas las visitas son locales. Mediante `X-Real-IP` y `X-Forwarded-For`, Nginx le pasa la verdadera dirección IP del cliente remoto. Con `X-Forwarded-Proto: https`, le avisa que la conexión original vino cifrada.
+### Redirecciones HTTP: 301 vs 302 vs 303
+Las redirecciones (familia 3xx) le indican al cliente que el recurso solicitado está disponible en una dirección diferente:
+- **`301 Moved Permanently` (el que usamos en Nginx):**
+  Indica que el recurso cambió de URL de forma **permanente** (en nuestro caso, migró de `http://` no seguro a `https://` seguro). Los navegadores y buscadores guardan esta redirección en caché para saltar automáticamente a HTTPS en visitas posteriores.
+- **`302 Found` (Redirección Temporal):**
+  Indica que el cambio de ubicación es temporal. Los clientes seguirán pidiendo la URL original en futuras ocasiones.
+- **`303 See Other`:**
+  Indica al cliente que debe buscar la respuesta en otra URL utilizando estrictamente el método **`GET`**. Es muy utilizado en aplicaciones web tras procesar un formulario con `POST` (patrón *Post/Redirect/Get*), para evitar que si el usuario presiona "recargar" en el navegador se vuelva a enviar la información duplicada.
+
+### Terminación SSL/TLS (*SSL Termination*)
+Es la práctica donde el proxy reverso (Nginx) asume todo el costo computacional del cifrado y descifrado criptográfico (el handshake TLS).
+Una vez descifrado el paquete en el puerto 443, Nginx le transfiere la solicitud en HTTP plano al backend (`127.0.0.1:8080`) a través del loopback local. Esto simplifica la infraestructura porque el backend no necesita gestionar certificados y queda protegido detrás del proxy.
+
+### Cabeceras `X-Forwarded-*`
+Dado que Nginx intermedia la conexión, la conexión TCP con el backend nace en la IP de Nginx (`127.0.0.1`). Para que el backend conozca el contexto real del visitante, Nginx inyecta cabeceras especiales:
+- **`Host`:** El nombre de dominio original que solicitó el cliente.
+- **`X-Real-IP`:** La dirección IP real del visitante remoto.
+- **`X-Forwarded-For`:** Lista de IPs por las que fue pasando la petición.
+- **`X-Forwarded-Proto`:** Informa si la conexión del usuario original vino por `http` o por `https`.

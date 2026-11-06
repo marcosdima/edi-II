@@ -14,7 +14,7 @@ Sistema automatizado para firmar documentos digitales mediante GPG (GNU Privacy 
 ├── setup_keys.sh       # Genera un par de llaves GPG de prueba en modo desatendido
 ├── sign_documents.sh   # Script principal que procesa y firma los documentos pendientes
 ├── verify_document.sh  # Script para comprobar si un archivo firmado es auténtico o fue modificado
-└── README.md           # Guía de defensa oral y teoría de examen
+└── README.md           # Guía de defensa y conceptos teóricos
 ```
 
 ---
@@ -88,9 +88,9 @@ Para que este script se ejecute automáticamente cada 5 minutos:
    ```bash
    crontab -e
    ```
-2. Agregar la siguiente línea al final del archivo (usando la ruta absoluta):
+2. Agregar la siguiente línea al final del archivo (usando la ruta absoluta del script):
    ```text
-   */5 * * * * /home/marcosdima/Desktop/Institut/Segundo\ año/Edi\ II/final/02_firma_pgp_cron/sign_documents.sh
+   */5 * * * * /ruta/absoluta/a/02_firma_pgp_cron/sign_documents.sh
    ```
 3. Guardar y verificar que quedó programado:
    ```bash
@@ -107,3 +107,34 @@ Para que este script se ejecute automáticamente cada 5 minutos:
  │  └────────────── Hora (0 - 23)
  └───────────────── Minuto (0 - 59) -> */5 significa "cada 5 minutos"
 ```
+
+---
+
+## 5. Glosario y Conceptos Teóricos (PGP / Criptografía)
+
+### PGP y GPG
+- **PGP (*Pretty Good Privacy*):** Estándar de cifrado y firma digital para proteger la privacidad e integridad de los datos.
+- **GPG (*GNU Privacy Guard*):** Herramienta libre y de código abierto en Linux que implementa el estándar OpenPGP. Es el comando `gpg` que usamos en la terminal.
+
+### Criptografía Asimétrica (Par de Claves)
+A diferencia del cifrado simétrico (donde una sola clave cifra y descifra):
+- **Clave Privada:** Es estrictamente secreta y solo la posee su dueño. Nunca se comparte. Se utiliza para **firmar** documentos o para descifrar mensajes recibidos.
+- **Clave Pública:** Es accesible y conocida por cualquiera. Se utiliza para **verificar** las firmas emitidas por el dueño o para cifrarle mensajes que solo él podrá leer.
+
+### Función Hash (Resumen Criptográfico)
+Un algoritmo matemático (como SHA-256) que calcula una "huella digital" de longitud fija para cualquier documento:
+- **Unidireccional:** A partir del hash es imposible reconstruir el archivo original.
+- **Sensible y Determinista:** El mismo archivo siempre produce el mismo hash, pero si se altera un solo byte o coma, el hash resultante cambia totalmente (efecto avalancha).
+
+### ¿Cómo funciona la Firma Digital?
+1. El script toma el documento y calcula su **hash**.
+2. Ese hash se cifra utilizando la **clave privada** del firmante. El resultado cifrado es la firma (`.asc`).
+3. Para comprobar la autenticidad (`gpg --verify`):
+   - El receptor calcula el hash del documento recibido.
+   - Descifra el archivo `.asc` usando la **clave pública** del firmante (obteniendo el hash original).
+   - Si ambos hashes coinciden, se comprueba que el archivo es legítimo y no fue alterado.
+
+### Principios de Seguridad que Garantiza
+- **Autenticidad:** Confirma la identidad del emisor (solo quien posee la clave privada pudo haber generado la firma).
+- **Integridad:** Garantiza que el contenido del documento no sufrió modificaciones tras la firma.
+- **No Repudio:** El emisor no puede negar haber firmado el documento, ya que su clave privada es personal e intransferible.
