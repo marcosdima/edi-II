@@ -19,7 +19,8 @@
     "tests"
   ],
   "python.analysis.extraPaths": [
-    "services/chat_service"
+    "services/chat_service",
+    "services/ai_service"
   ],
   "[python]": {
     "editor.defaultFormatter": "charliermarsh.ruff",

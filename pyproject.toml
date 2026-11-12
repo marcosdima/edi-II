@@ -21,9 +21,9 @@ known-first-party = ["database", "app"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["services/chat_service"]
+pythonpath = ["services/chat_service", "services/ai_service"]
 
 [tool.pyright]
 include = ["services", "tests"]
-extraPaths = ["services/chat_service"]
+extraPaths = ["services/chat_service", "services/ai_service"]
 

@@ -2,7 +2,11 @@ import os
 
 from chat.extensions import db
 from chat.routes import chat_bp
+from dotenv import find_dotenv, load_dotenv
 from flask import Flask
+
+# Load environment variables from .env if present
+load_dotenv(find_dotenv(usecwd=True))
 
 
 def create_app(database_uri: str | None = None) -> Flask:
@@ -14,7 +18,11 @@ def create_app(database_uri: str | None = None) -> Flask:
     else:
         default_db = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "chat.db")
         db_path = os.getenv("CHAT_DB_PATH", default_db)
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        try:
+            os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        except (PermissionError, OSError):
+            db_path = default_db
+            os.makedirs(os.path.dirname(db_path), exist_ok=True)
         app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
 
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
