@@ -67,9 +67,35 @@ class ProxyTester:
         """Executes full Chat microservice workflow through the Reverse Proxy."""
         print(Colors.header("Test 3: Chat Service Workflow via /api/chat/"))
 
-        # 1. Health Check
+        # 1. User Registration & Health Check
+        reg_url = f"{self.config.https_url}/api/chat/auth/register"
+        print(Colors.info(f"1. Registering test users at {reg_url}..."))
+        try:
+            requests.post(
+                reg_url,
+                json={"username": "marcos", "display_name": "Marcos Di Matteo"},
+                verify=False,
+                timeout=5,
+            )
+            requests.post(
+                reg_url,
+                json={"username": "profe", "display_name": "Profesor Linux"},
+                verify=False,
+                timeout=5,
+            )
+            u_res = requests.get(f"{self.config.https_url}/api/chat/users", verify=False, timeout=5)
+            if u_res.status_code == 200:
+                total_u = u_res.json().get("total_users", 0)
+                print(Colors.ok(f"Users registered and verified ({total_u} active users)."))
+            else:
+                print(Colors.warn("User listing returned non-200 status."))
+        except requests.RequestException as err:
+            print(Colors.err(f"User registration error: {err}"))
+            return False
+
+        # 2. Health Check
         health_url = f"{self.config.https_url}/api/chat/health"
-        print(Colors.info(f"1. Checking Chat Health: {health_url}"))
+        print(Colors.info(f"2. Checking Chat Health: {health_url}"))
         try:
             h_res = requests.get(health_url, verify=False, timeout=5)
             if h_res.status_code != 200:
@@ -80,10 +106,10 @@ class ProxyTester:
             print(Colors.err(f"Failed to reach chat service: {err}"))
             return False
 
-        # 2. Create Conversation
+        # 3. Create Conversation
         conv_url = f"{self.config.https_url}/api/chat/conversations"
         payload = {"title": "CLI Integration Test", "participants": ["marcos", "profe"]}
-        print(Colors.info(f"2. Creating conversation: POST {conv_url}"))
+        print(Colors.info(f"3. Creating conversation: POST {conv_url}"))
         try:
             c_res = requests.post(conv_url, json=payload, verify=False, timeout=5)
             if c_res.status_code != 201:

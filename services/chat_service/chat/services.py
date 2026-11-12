@@ -1,5 +1,32 @@
 from .extensions import db
-from .models import Conversation, Message, Participant
+from .models import Conversation, Message, Participant, User
+
+
+class UserService:
+    """Business service handling user identity and registration."""
+
+    @staticmethod
+    def register(username: str, display_name: str | None = None) -> tuple[User, bool]:
+        """Registers a user if not exists. Returns (User, was_created)."""
+        clean_user = username.strip().lower()
+        existing = User.query.filter_by(username=clean_user).first()
+        if existing:
+            return existing, False
+
+        user = User(username=clean_user, display_name=display_name)
+        db.session.add(user)
+        db.session.commit()
+        return user, True
+
+    @staticmethod
+    def get_by_username(username: str) -> User | None:
+        """Retrieves user by username."""
+        return User.query.filter_by(username=username.strip().lower()).first()
+
+    @staticmethod
+    def list_users(limit: int = 100) -> list[User]:
+        """Lists registered users."""
+        return User.query.order_by(User.username.asc()).limit(limit).all()
 
 
 class ConversationService:
@@ -13,7 +40,9 @@ class ConversationService:
         db.session.flush()
 
         for username in participants:
-            db.session.add(Participant(conversation_id=conversation.id, username=username))
+            clean_name = username.strip().lower()
+            UserService.register(clean_name)
+            db.session.add(Participant(conversation_id=conversation.id, username=clean_name))
 
         db.session.commit()
         return conversation
@@ -46,11 +75,14 @@ class ParticipantService:
     @staticmethod
     def add_participant(conv_id: int, username: str) -> Participant:
         """Adds a user to a conversation if not already present."""
-        existing = Participant.query.filter_by(conversation_id=conv_id, username=username).first()
+        clean_name = username.strip().lower()
+        UserService.register(clean_name)
+
+        existing = Participant.query.filter_by(conversation_id=conv_id, username=clean_name).first()
         if existing:
             return existing
 
-        participant = Participant(conversation_id=conv_id, username=username)
+        participant = Participant(conversation_id=conv_id, username=clean_name)
         db.session.add(participant)
         db.session.commit()
         return participant
@@ -59,7 +91,7 @@ class ParticipantService:
     def remove_participant(conv_id: int, username: str) -> bool:
         """Removes a participant from a conversation."""
         participant = Participant.query.filter_by(
-            conversation_id=conv_id, username=username
+            conversation_id=conv_id, username=username.strip().lower()
         ).first()
         if not participant:
             return False
@@ -72,7 +104,9 @@ class ParticipantService:
     def is_participant(conv_id: int, username: str) -> bool:
         """Checks if a user is an active participant in a conversation."""
         return (
-            Participant.query.filter_by(conversation_id=conv_id, username=username).first()
+            Participant.query.filter_by(
+                conversation_id=conv_id, username=username.strip().lower()
+            ).first()
             is not None
         )
 
@@ -89,7 +123,7 @@ class ParticipantService:
     def list_user_participations(username: str) -> list[Participant]:
         """Lists all conversation participations for a user, ordered by creation date."""
         return (
-            Participant.query.filter_by(username=username)
+            Participant.query.filter_by(username=username.strip().lower())
             .join(Conversation)
             .order_by(Conversation.created_at.desc())
             .all()
@@ -102,7 +136,11 @@ class MessageService:
     @staticmethod
     def create_message(conv_id: int, sender: str, content: str) -> Message:
         """Persists a new chat message to a conversation."""
-        message = Message(conversation_id=conv_id, sender=sender, content=content)
+        message = Message(
+            conversation_id=conv_id,
+            sender=sender.strip().lower(),
+            content=content,
+        )
         db.session.add(message)
         db.session.commit()
         return message

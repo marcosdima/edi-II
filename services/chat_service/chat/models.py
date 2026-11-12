@@ -7,6 +7,27 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .extensions import db
 
 
+class User(db.Model):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(80), unique=True, nullable=False, index=True)
+    display_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
+
+    def __init__(self, username: str, display_name: str | None = None) -> None:
+        self.username = username.strip().lower()
+        self.display_name = display_name.strip() if display_name else self.username
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "username": self.username,
+            "display_name": self.display_name,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
 class Conversation(db.Model):
     __tablename__ = "conversations"
 

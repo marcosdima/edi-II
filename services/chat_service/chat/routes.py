@@ -1,7 +1,12 @@
 from flask import Blueprint, jsonify, request
 
 from .directives import execute_system_directive
-from .services import ConversationService, MessageService, ParticipantService
+from .services import (
+    ConversationService,
+    MessageService,
+    ParticipantService,
+    UserService,
+)
 
 chat_bp = Blueprint("chat", __name__)
 
@@ -19,6 +24,73 @@ def get_proxy_metadata():
 def health_check():
     """Health check endpoint for Docker and Nginx reverse proxy."""
     return jsonify({"service": "chat-service", "status": "healthy"}), 200
+
+
+# -----------------------------------------------------------------------------
+# User Identity & Authentication Endpoints
+# -----------------------------------------------------------------------------
+
+
+@chat_bp.route("/auth/register", methods=["POST"])
+def register_user():
+    """
+    Registers a new user in the system.
+    Payload: {"username": "marcos", "display_name": "Marcos Di Matteo"}
+    """
+    data = request.get_json(silent=True) or {}
+    username = data.get("username", "").strip()
+    display_name = data.get("display_name", "").strip() or None
+
+    if not username:
+        return jsonify({"error": "'username' is required."}), 400
+
+    user, was_created = UserService.register(username=username, display_name=display_name)
+
+    status_code = 201 if was_created else 200
+    return (
+        jsonify(
+            {
+                "status": "created" if was_created else "already_registered",
+                "user": user.to_dict(),
+                "proxy_metadata": get_proxy_metadata(),
+            }
+        ),
+        status_code,
+    )
+
+
+@chat_bp.route("/users", methods=["GET"])
+def list_users():
+    """Returns all registered users in the system."""
+    users = UserService.list_users()
+    return (
+        jsonify(
+            {
+                "total_users": len(users),
+                "users": [u.to_dict() for u in users],
+                "proxy_metadata": get_proxy_metadata(),
+            }
+        ),
+        200,
+    )
+
+
+@chat_bp.route("/users/<username>", methods=["GET"])
+def get_user_profile(username: str):
+    """Retrieves profile details for a given username."""
+    user = UserService.get_by_username(username)
+    if not user:
+        return jsonify({"error": f"User '{username}' not found."}), 404
+
+    return (
+        jsonify({"user": user.to_dict(), "proxy_metadata": get_proxy_metadata()}),
+        200,
+    )
+
+
+# -----------------------------------------------------------------------------
+# Conversation & Messaging Endpoints
+# -----------------------------------------------------------------------------
 
 
 @chat_bp.route("/conversations", methods=["POST"])

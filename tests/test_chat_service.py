@@ -273,3 +273,53 @@ def test_system_directive_unknown(client):
     )
     assert res.status_code == 400
     assert "Unknown directive" in res.get_json()["error"]
+
+
+def test_user_registration_and_retrieval(client):
+    """Verify user registration, profile query, and list of users."""
+    # 1. Register new user
+    res = client.post(
+        "/auth/register",
+        json={"username": "marcos", "display_name": "Marcos Di Matteo"},
+    )
+    assert res.status_code == 201
+    data = res.get_json()
+    assert data["status"] == "created"
+    assert data["user"]["username"] == "marcos"
+    assert data["user"]["display_name"] == "Marcos Di Matteo"
+
+    # 2. Register same user again (idempotent)
+    res_dup = client.post(
+        "/auth/register",
+        json={"username": "marcos", "display_name": "Different Name"},
+    )
+    assert res_dup.status_code == 200
+    assert res_dup.get_json()["status"] == "already_registered"
+
+    # 3. Missing username validation error
+    res_err = client.post("/auth/register", json={})
+    assert res_err.status_code == 400
+
+    # 4. Register second user
+    client.post(
+        "/auth/register",
+        json={"username": "profe", "display_name": "Profesor Linux"},
+    )
+
+    # 5. List all registered users
+    res_list = client.get("/users")
+    assert res_list.status_code == 200
+    list_data = res_list.get_json()
+    assert list_data["total_users"] == 2
+    usernames = [u["username"] for u in list_data["users"]]
+    assert "marcos" in usernames
+    assert "profe" in usernames
+
+    # 6. Get single user profile
+    res_single = client.get("/users/marcos")
+    assert res_single.status_code == 200
+    assert res_single.get_json()["user"]["display_name"] == "Marcos Di Matteo"
+
+    # 7. Non-existent user profile returns 404
+    res_404 = client.get("/users/ghost_user")
+    assert res_404.status_code == 404
