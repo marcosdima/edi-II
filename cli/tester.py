@@ -233,6 +233,130 @@ class ProxyTester:
             print(Colors.err(f"AI generation request error: {err}"))
             return False
 
+    def test_security_headers(self) -> bool:
+        """Verifies OWASP security headers and server version masking on HTTPS."""
+        print(Colors.header("Test 5: Nginx Security Headers & Version Masking"))
+        target = f"{self.config.https_url}/"
+        try:
+            res = requests.get(target, verify=False, timeout=5)
+            headers = res.headers
+
+            # Verify Server header masks exact Nginx version (server_tokens off)
+            server_header = headers.get("Server", "")
+            if "/" in server_header:
+                print(Colors.err(f"Server header exposes version: '{server_header}'"))
+                return False
+            print(Colors.ok(f"Server header masked properly: '{server_header}'"))
+
+            # Check critical OWASP headers
+            expected_headers = [
+                ("X-Frame-Options", "SAMEORIGIN"),
+                ("X-Content-Type-Options", "nosniff"),
+                ("X-XSS-Protection", "1; mode=block"),
+            ]
+            for h_name, expected_val in expected_headers:
+                actual = headers.get(h_name)
+                if not actual or expected_val not in actual:
+                    print(Colors.err(f"Missing or invalid security header: {h_name}"))
+                    return False
+                print(Colors.ok(f"Security header verified: {h_name}: {actual}"))
+
+            return True
+        except requests.RequestException as err:
+            print(Colors.err(f"Security header check failed: {err}"))
+            return False
+
+    def test_access_control(self) -> bool:
+        """Verifies Perimeter Geo-blocking and IP Blacklisting return 403 Forbidden."""
+        print(Colors.header("Test 6: Perimeter Access Control (GeoIP & IP Blocking)"))
+
+        # 1. Geo-blocking with simulated sanctioned country
+        print(Colors.info("1. Testing Geo-blocking with X-Country-Code: BLOCKED"))
+        try:
+            res_geo = requests.get(
+                f"{self.config.https_url}/api/chat/health",
+                headers={"X-Country-Code": "BLOCKED"},
+                verify=False,
+                timeout=5,
+            )
+            if res_geo.status_code != 403:
+                print(Colors.err(f"Expected 403 Forbidden, got {res_geo.status_code}"))
+                return False
+            print(Colors.ok("Geo-blocked request rejected with HTTP 403 Forbidden by Nginx."))
+        except requests.RequestException as err:
+            print(Colors.err(f"Geo-blocking request error: {err}"))
+            return False
+
+        # 2. IP Blocking simulation
+        print(Colors.info("2. Testing IP Blacklist policy with X-Simulate-Blocked-IP: 1"))
+        try:
+            res_ip = requests.get(
+                f"{self.config.https_url}/api/ai/health",
+                headers={"X-Simulate-Blocked-IP": "1"},
+                verify=False,
+                timeout=5,
+            )
+            if res_ip.status_code != 403:
+                print(Colors.err(f"Expected 403 Forbidden, got {res_ip.status_code}"))
+                return False
+            print(Colors.ok("IP-restricted request rejected with HTTP 403 Forbidden by Nginx."))
+        except requests.RequestException as err:
+            print(Colors.err(f"IP-blocking request error: {err}"))
+            return False
+
+        # 3. Legitimate request with allowed country code
+        print(Colors.info("3. Testing legitimate request with X-Country-Code: AR"))
+        try:
+            res_ok = requests.get(
+                f"{self.config.https_url}/api/chat/health",
+                headers={"X-Country-Code": "AR"},
+                verify=False,
+                timeout=5,
+            )
+            if res_ok.status_code != 200:
+                print(Colors.err(f"Legitimate request failed with status {res_ok.status_code}"))
+                return False
+            print(Colors.ok("Legitimate request allowed through reverse proxy (HTTP 200)."))
+            return True
+        except requests.RequestException as err:
+            print(Colors.err(f"Legitimate request error: {err}"))
+            return False
+
+    def test_rate_limiting(self) -> bool:
+        """Verifies Nginx Rate Limiting returns HTTP 429 Too Many Requests under burst."""
+        print(Colors.header("Test 7: Nginx Rate Limiting (limit_req & HTTP 429)"))
+        target = f"{self.config.https_url}/api/ai/health"
+        print(Colors.info(f"Firing burst of 25 rapid requests to {target}..."))
+
+        status_codes: list[int] = []
+        try:
+            for _ in range(25):
+                r = requests.get(target, verify=False, timeout=3)
+                status_codes.append(r.status_code)
+
+            count_200 = status_codes.count(200)
+            count_429 = status_codes.count(429)
+            print(
+                f"Results: {Colors.GREEN}{count_200} allowed (200){Colors.RESET}, {Colors.YELLOW}{count_429} rate-limited (429){Colors.RESET}"
+            )
+
+            if count_429 == 0:
+                print(Colors.err("Rate limiting did not trigger any 429 responses."))
+                return False
+
+            print(Colors.ok("Rate limiting successfully throttled traffic with HTTP 429."))
+            return True
+        except requests.RequestException as err:
+            print(Colors.err(f"Rate limiting request error: {err}"))
+            return False
+
+    def test_security(self) -> bool:
+        """Runs the complete security test suite."""
+        h_ok = self.test_security_headers()
+        a_ok = self.test_access_control()
+        r_ok = self.test_rate_limiting()
+        return h_ok and a_ok and r_ok
+
     def run_all(self) -> bool:
         """Runs the entire suite of verification tests."""
         print(
@@ -252,6 +376,9 @@ class ProxyTester:
             ("Gateway Root Endpoint", self.test_gateway_root()),
             ("Chat Service Workflow", self.test_chat_service()),
             ("AI Completion Service", self.test_ai_service()),
+            ("Security Headers & Masking", self.test_security_headers()),
+            ("Perimeter Access Control", self.test_access_control()),
+            ("Rate Limiting (429)", self.test_rate_limiting()),
         ]
 
         print(Colors.header("Test Results Summary"))

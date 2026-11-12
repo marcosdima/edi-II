@@ -18,6 +18,8 @@ class InteractiveTerminal(cmd.Cmd):
 {Colors.BOLD}{Colors.CYAN}======================================================{Colors.RESET}
 Type {Colors.BOLD}'chat'{Colors.RESET} to enter the interactive Chat system (or 'chat test').
 Type {Colors.BOLD}'ai'{Colors.RESET} to enter the interactive AI assistant view (or 'ai <prompt>').
+Type {Colors.BOLD}'security'{Colors.RESET} to test rate limiting, GeoIP blocking & headers.
+Type {Colors.BOLD}'audit'{Colors.RESET} to view live Nginx audit logs.
 Type {Colors.BOLD}'status'{Colors.RESET} to inspect container health.
 Type {Colors.BOLD}'test'{Colors.RESET} to run the complete end-to-end proxy test suite.
 Type {Colors.BOLD}'help'{Colors.RESET} to list available commands. Type {Colors.BOLD}'exit'{Colors.RESET} or Ctrl+D to quit.
@@ -103,6 +105,25 @@ Type {Colors.BOLD}'help'{Colors.RESET} to list available commands. Type {Colors.
         else:
             self.tester.test_ai_service(prompt=text)
 
+    def do_security(self, arg: str) -> None:
+        """Run security verification (headers, GeoIP blocking, rate limiting): security"""
+        self.tester.test_security()
+
+    def do_audit(self, arg: str) -> None:
+        """View live Nginx reverse proxy audit logs: audit [--tail=N]"""
+        tail = 25
+        parts = arg.strip().split()
+        for p in parts:
+            if p.startswith("--tail="):
+                try:
+                    tail = int(p.split("=")[1])
+                except ValueError:
+                    pass
+            elif p.isdigit():
+                tail = int(p)
+        print(Colors.header(f"Nginx Audit Logs (last {tail} entries)"))
+        DockerManager.logs(service="reverse-proxy", tail=tail, follow=False)
+
     # --- Utility Commands ---
 
     def do_clear(self, arg: str) -> None:
@@ -159,8 +180,11 @@ def build_parser() -> argparse.ArgumentParser:
     logs_parser.add_argument("-f", "--follow", action="store_true", help="Follow log output")
     logs_parser.add_argument("--tail", type=int, default=50, help="Number of log lines")
 
-    # Testing commands
+    # Testing and security commands
     subparsers.add_parser("test", help="Run full end-to-end proxy verification suite")
+    subparsers.add_parser("security", help="Run security verification (headers, GeoIP, rate limit)")
+    audit_parser = subparsers.add_parser("audit", help="Inspect Nginx reverse proxy audit logs")
+    audit_parser.add_argument("--tail", type=int, default=25, help="Number of audit log entries")
     subparsers.add_parser("gateway", help="Test gateway root endpoint")
     subparsers.add_parser("redirect", help="Test HTTP (80) -> HTTPS (443) 301 redirection")
     chat_parser = subparsers.add_parser(
@@ -207,8 +231,12 @@ def main() -> int:
         return DockerManager.restart(args.service)
     elif args.command == "logs":
         return DockerManager.logs(service=args.service, tail=args.tail, follow=args.follow)
+    elif args.command == "audit":
+        return DockerManager.logs(service="reverse-proxy", tail=args.tail, follow=False)
     elif args.command == "test":
         return 0 if tester.run_all() else 1
+    elif args.command == "security":
+        return 0 if tester.test_security() else 1
     elif args.command == "gateway":
         return 0 if tester.test_gateway_root() else 1
     elif args.command == "redirect":

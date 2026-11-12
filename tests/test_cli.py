@@ -104,3 +104,54 @@ def test_cli_parser():
     args_ai = parser.parse_args(["ai", "What", "is", "Nginx?"])
     assert args_ai.command == "ai"
     assert args_ai.prompt == ["What", "is", "Nginx?"]
+
+    args_sec = parser.parse_args(["security"])
+    assert args_sec.command == "security"
+
+    args_aud = parser.parse_args(["audit", "--tail", "15"])
+    assert args_aud.command == "audit"
+    assert args_aud.tail == 15
+
+
+@patch("cli.tester.requests.get")
+def test_proxy_tester_security_headers(mock_get):
+    """Verify security headers validation logic."""
+    mock_res = MagicMock()
+    mock_res.status_code = 200
+    mock_res.headers = {
+        "Server": "nginx",
+        "X-Frame-Options": "SAMEORIGIN",
+        "X-Content-Type-Options": "nosniff",
+        "X-XSS-Protection": "1; mode=block",
+    }
+    mock_get.return_value = mock_res
+
+    tester = ProxyTester()
+    assert tester.test_security_headers() is True
+
+
+@patch("cli.tester.requests.get")
+def test_proxy_tester_access_control(mock_get):
+    """Verify perimeter access control tests for GeoIP and IP blocks."""
+    tester = ProxyTester()
+
+    # Blocked requests return 403, legitimate return 200
+    mock_403 = MagicMock(status_code=403)
+    mock_200 = MagicMock(status_code=200)
+    mock_get.side_effect = [mock_403, mock_403, mock_200]
+
+    assert tester.test_access_control() is True
+
+
+@patch("cli.tester.requests.get")
+def test_proxy_tester_rate_limiting(mock_get):
+    """Verify rate limiting detection under burst traffic."""
+    tester = ProxyTester()
+
+    # Mock 10 allowed (200) followed by 15 rate-limited (429)
+    mock_responses = [MagicMock(status_code=200) for _ in range(10)] + [
+        MagicMock(status_code=429) for _ in range(15)
+    ]
+    mock_get.side_effect = mock_responses
+
+    assert tester.test_rate_limiting() is True
