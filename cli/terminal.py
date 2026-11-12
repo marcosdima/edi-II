@@ -6,6 +6,7 @@ import sys
 from .config import Colors, get_proxy_config
 from .manager import DockerManager
 from .tester import ProxyTester
+from .views import AIView, ChatView
 
 
 class InteractiveTerminal(cmd.Cmd):
@@ -15,10 +16,11 @@ class InteractiveTerminal(cmd.Cmd):
 {Colors.BOLD}{Colors.CYAN}======================================================{Colors.RESET}
 {Colors.BOLD}{Colors.CYAN}       Nginx Reverse Proxy Management & Test CLI      {Colors.RESET}
 {Colors.BOLD}{Colors.CYAN}======================================================{Colors.RESET}
-Type {Colors.BOLD}'help'{Colors.RESET} to list available commands.
+Type {Colors.BOLD}'chat'{Colors.RESET} to enter the interactive Chat system (or 'chat test').
+Type {Colors.BOLD}'ai'{Colors.RESET} to enter the interactive AI assistant view (or 'ai <prompt>').
 Type {Colors.BOLD}'status'{Colors.RESET} to inspect container health.
 Type {Colors.BOLD}'test'{Colors.RESET} to run the complete end-to-end proxy test suite.
-Type {Colors.BOLD}'exit'{Colors.RESET} or Ctrl+D to quit.
+Type {Colors.BOLD}'help'{Colors.RESET} to list available commands. Type {Colors.BOLD}'exit'{Colors.RESET} or Ctrl+D to quit.
 """
     prompt = f"{Colors.BOLD}{Colors.CYAN}proxy-cli>{Colors.RESET} "
 
@@ -83,15 +85,23 @@ Type {Colors.BOLD}'exit'{Colors.RESET} or Ctrl+D to quit.
         self.tester.test_http_redirect()
 
     def do_chat(self, arg: str) -> None:
-        """Run complete Chat Service test workflow through proxy: chat"""
-        self.tester.test_chat_service()
+        """Enter interactive Chat view or run automated test: chat [test | <username>]"""
+        parts = arg.strip().split()
+        if parts and parts[0].lower() == "test":
+            self.tester.test_chat_service()
+        else:
+            username = parts[0] if parts else "marcos"
+            ChatView(default_user=username).cmdloop()
 
     def do_ai(self, arg: str) -> None:
-        """Send a prompt to the AI completion service via proxy: ai <your prompt here>"""
-        prompt = arg.strip()
-        if not prompt:
-            prompt = "Explain in two sentences what a reverse proxy does."
-        self.tester.test_ai_service(prompt=prompt)
+        """Enter interactive AI assistant or run prompt: ai [test | <prompt>]"""
+        text = arg.strip()
+        if not text:
+            AIView().cmdloop()
+        elif text.lower() == "test":
+            self.tester.test_ai_service()
+        else:
+            self.tester.test_ai_service(prompt=text)
 
     # --- Utility Commands ---
 
@@ -153,15 +163,24 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("test", help="Run full end-to-end proxy verification suite")
     subparsers.add_parser("gateway", help="Test gateway root endpoint")
     subparsers.add_parser("redirect", help="Test HTTP (80) -> HTTPS (443) 301 redirection")
-    subparsers.add_parser("chat", help="Run chat workflow test via proxy")
+    chat_parser = subparsers.add_parser(
+        "chat", help="Launch interactive Chat view or run automated tests"
+    )
+    chat_parser.add_argument(
+        "--test", action="store_true", help="Run automated chat test suite via proxy"
+    )
+    chat_parser.add_argument(
+        "-u", "--user", default="marcos", help="Username for interactive chat (default: marcos)"
+    )
 
-    ai_parser = subparsers.add_parser("ai", help="Query AI service through proxy")
+    ai_parser = subparsers.add_parser("ai", help="Query AI service or launch interactive view")
     ai_parser.add_argument(
         "prompt",
         nargs="*",
-        default=["Explain what a reverse proxy does in one sentence."],
-        help="Prompt text for AI",
+        default=[],
+        help="Prompt text for AI (if omitted, launches interactive AI view)",
     )
+    ai_parser.add_argument("--test", action="store_true", help="Run automated AI service test")
 
     return parser
 
@@ -195,8 +214,16 @@ def main() -> int:
     elif args.command == "redirect":
         return 0 if tester.test_http_redirect() else 1
     elif args.command == "chat":
-        return 0 if tester.test_chat_service() else 1
+        if args.test:
+            return 0 if tester.test_chat_service() else 1
+        ChatView(default_user=args.user).cmdloop()
+        return 0
     elif args.command == "ai":
+        if args.test:
+            return 0 if tester.test_ai_service() else 1
+        if not args.prompt:
+            AIView().cmdloop()
+            return 0
         prompt_text = " ".join(args.prompt)
         return 0 if tester.test_ai_service(prompt=prompt_text) else 1
     else:
