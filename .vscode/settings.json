@@ -18,6 +18,9 @@
   "python.testing.pytestArgs": [
     "tests"
   ],
+  "python.analysis.extraPaths": [
+    "services/chat_service"
+  ],
   "[python]": {
     "editor.defaultFormatter": "charliermarsh.ruff",
     "editor.formatOnSave": true,
