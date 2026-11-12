@@ -1,0 +1,72 @@
+services:
+  # ---------------------------------------------------------------------------
+  # 1. Reverse Proxy (Gateway)
+  # Acts as the single entrypoint from the host machine / external network.
+  # ---------------------------------------------------------------------------
+  reverse-proxy:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: reverse-proxy
+    # ONLY the proxy exposes public ports to the host machine.
+    # Configurable via PROXY_HTTP_PORT / PROXY_HTTPS_PORT in .env (defaults to 80/443)
+    ports:
+      - "${PROXY_HTTP_PORT:-80}:80"    # HTTP (redirects to HTTPS)
+      - "${PROXY_HTTPS_PORT:-443}:443"  # HTTPS (TLS termination and routing)
+    depends_on:
+      - chat-service
+      - ai-service
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # 2. Chat Microservice (Internal stateful service with SQLite)
+  # ---------------------------------------------------------------------------
+  chat-service:
+    build:
+      context: ./services/chat_service
+      dockerfile: Dockerfile
+    container_name: chat-service
+    # No "ports" directive: unreachable directly from host, accessible only via proxy
+    environment:
+      - CHAT_DB_PATH=/app/data/chat.db
+    env_file:
+      - path: .env
+        required: false
+    # Named volume ensures SQLite database survives container restarts & rebuilds
+    volumes:
+      - chat_data:/app/data
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # 3. AI Microservice (Internal stateless service connecting to LLM providers)
+  # ---------------------------------------------------------------------------
+  ai-service:
+    build:
+      context: ./services/ai_service
+      dockerfile: Dockerfile
+    container_name: ai-service
+    # No "ports" directive: isolated behind the reverse proxy
+    env_file:
+      - path: .env
+        required: false
+    networks:
+      - app-network
+    restart: unless-stopped
+
+# -----------------------------------------------------------------------------
+# Networks: Isolated bridge network enabling DNS resolution between containers
+# -----------------------------------------------------------------------------
+networks:
+  app-network:
+    driver: bridge
+
+# -----------------------------------------------------------------------------
+# Volumes: Host storage managed by Docker for database persistence
+# -----------------------------------------------------------------------------
+volumes:
+  chat_data:
+    driver: local
