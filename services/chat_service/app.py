@@ -1,8 +1,8 @@
 import os
 
+from chat.extensions import db
+from chat.routes import chat_bp
 from flask import Flask
-from src.extensions import db
-from src.routes import chat_bp
 
 
 def create_app(database_uri: str | None = None) -> Flask:
