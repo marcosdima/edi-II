@@ -217,3 +217,74 @@ def test_inbox_screen_actions():
                 assert screen.current_user == "profe"
 
     asyncio.run(_test())
+
+
+def test_main_screen_cards_and_ai_slash_commands():
+    """Verify MainScreen renders 6 MenuCards, slash OptionList selector, and AIScreen /help."""
+    from textual.widgets import OptionList
+
+    from cli.tui.main_screen import MenuCard
+
+    async def _test():
+        with (
+            patch.object(AIScreen, "api_get") as mock_ai_get,
+            patch.object(AIScreen, "api_post") as mock_ai_post,
+        ):
+            mock_ai_get.return_value = MagicMock(
+                status_code=200,
+                json=lambda: {
+                    "configuration": {
+                        "provider": "groq",
+                        "default_model": "llama-3.3-70b",
+                        "api_key_configured": True,
+                    }
+                },
+            )
+
+            app = ProxyApp()
+            async with app.run_test() as pilot:
+                assert isinstance(app.screen, MainScreen)
+                cards = app.screen.query(MenuCard)
+                assert len(cards) == 6
+
+                # Typing '/' shows the OptionList command selector popup
+                main_inp = app.screen.query_one(Input)
+                palette = app.screen.query_one("#command_palette", OptionList)
+                assert palette.display is False
+                main_inp.value = "/"
+                await pilot.pause()
+                assert palette.display is True
+                assert palette.option_count == len(MainScreen.SCREEN_COMMANDS)
+
+                main_inp.value = "/au"
+                await pilot.pause()
+                assert palette.display is True
+                await pilot.press("tab")
+                await pilot.pause()
+                assert main_inp.value == "/audit"
+                assert palette.display is False
+
+                main_inp.value = ""
+                await pilot.pause()
+                assert palette.display is False
+
+                # Navigate to AI Screen
+                main_inp.value = "2"
+                await pilot.press("enter")
+                await pilot.pause()
+                assert isinstance(app.screen, AIScreen)
+
+                # Typing /help must NOT trigger api_post
+                ai_inp = app.screen.query_one(Input)
+                ai_inp.value = "/help"
+                await pilot.press("enter")
+                await pilot.pause()
+                mock_ai_post.assert_not_called()
+
+                # Typing unknown slash command must NOT trigger api_post
+                ai_inp.value = "/unknown"
+                await pilot.press("enter")
+                await pilot.pause()
+                mock_ai_post.assert_not_called()
+
+    asyncio.run(_test())

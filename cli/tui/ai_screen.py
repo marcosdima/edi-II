@@ -1,23 +1,28 @@
 from typing import Any
 
 import requests
-import urllib3
 from rich.markup import escape
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
-from textual.screen import Screen
 from textual.widgets import Input, Label, RichLog
 
-from ..config import ProxyConfig, get_proxy_config
-from .theme import format_system_event
+from ..config import ProxyConfig
+from .base_screen import BaseTUIScreen, CommandSpec
+from .theme import COLOR_DIM, COLOR_MUTED, COLOR_PRIMARY, format_system_event
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-
-class AIScreen(Screen[None]):
+class AIScreen(BaseTUIScreen):
     """Interactive AI completion screen with non-blocking workers and monochrome formatting."""
+
+    SCREEN_COMMANDS = [
+        CommandSpec("/help", "Show available commands", aliases=("help", "?")),
+        CommandSpec("/model", "Switch active LLM model (or reset)", args="<name>"),
+        CommandSpec("/temp", "Set sampling temperature", args="<0.0-2.0>"),
+        CommandSpec("/sys", "Set system prompt (empty to reset)", args="<prompt>"),
+        CommandSpec("/clear", "Clear conversation log", aliases=("clear", "cls")),
+        CommandSpec("/back", "Return to main menu", aliases=("/exit", "/quit")),
+    ]
 
     BINDINGS = [
         Binding("escape", "exit_ai", "Back", show=False),
@@ -25,8 +30,7 @@ class AIScreen(Screen[None]):
     ]
 
     def __init__(self, config: ProxyConfig | None = None) -> None:
-        super().__init__()
-        self.config = config or get_proxy_config()
+        super().__init__(config=config)
         self.provider = "unknown"
         self.default_model = "loading..."
         self.current_model: str | None = None
@@ -37,55 +41,29 @@ class AIScreen(Screen[None]):
         return self.current_model or self.default_model
 
     def compose(self) -> ComposeResult:
-        yield Horizontal(
-            Label("AI COMPLETION ASSISTANT", classes="tui-header-title"),
-            Label(f"model: {self.get_active_model()}", classes="tui-header-meta", id="ai_meta"),
-            classes="tui-header",
+        yield self.compose_header(
+            "AI COMPLETION ASSISTANT",
+            f"model: {self.get_active_model()}",
+            meta_id="ai_meta",
         )
-        yield Vertical(
-            RichLog(classes="tui-log", id="ai_log", highlight=False, markup=True, auto_scroll=True),
-            classes="tui-content",
+        yield self.compose_log_body("ai_log")
+        yield self.compose_bottom_panel(
+            placeholder="Type a prompt or /help, /model <name>, /temp <0.0-2.0>, /sys <prompt>...",
+            status_text=" Type / for Commands  •  [Esc] Back to Menu  •  [Ctrl+L] Clear  •  Type a prompt to query AI",
+            input_id="ai_input",
+            status_id="ai_status",
         )
-        with Vertical(classes="tui-bottom-panel"):
-            with Vertical(classes="tui-input-wrapper"):
-                yield Input(
-                    placeholder="Type a prompt or /model <name>, /temp <0.0-2.0>, /sys <prompt>...",
-                    classes="tui-input",
-                    id="ai_input",
-                )
-                yield Label(
-                    " [Esc] Back to Menu  •  [Ctrl+L] Clear  •  Type any question to query AI via proxy",
-                    classes="tui-status-bar",
-                    id="ai_status",
-                )
 
     def on_mount(self) -> None:
         self.query_one(Input).focus()
         self.fetch_info()
-
-    def api_get(self, endpoint: str) -> requests.Response | None:
-        url = f"{self.config.https_url}{endpoint}"
-        try:
-            return requests.get(url, verify=False, timeout=8)
-        except requests.RequestException:
-            return None
-
-    def api_post(self, endpoint: str, data: dict[str, Any]) -> requests.Response | None:
-        url = f"{self.config.https_url}{endpoint}"
-        try:
-            return requests.post(url, json=data, verify=False, timeout=60)
-        except requests.RequestException:
-            return None
 
     @work(thread=True)
     def fetch_info(self) -> None:
         res = self.api_get("/api/ai/info")
         log = self.query_one(RichLog)
         if res and res.status_code == 200:
-            try:
-                data = res.json()
-            except (ValueError, requests.exceptions.JSONDecodeError):
-                data = {}
+            data = self.client.safe_json(res)
             cfg = data.get("configuration", {})
             self.provider = cfg.get("provider", "unknown")
             self.default_model = cfg.get("default_model", "unknown")
@@ -99,9 +77,9 @@ class AIScreen(Screen[None]):
     def _on_info_loaded(self, key_ok: bool) -> None:
         self.query_one("#ai_meta", Label).update(f"model: {self.get_active_model()}")
         log = self.query_one(RichLog)
-        log.write("[bold #ffffff]AI Completion Service Active[/]")
+        log.write(f"[bold {COLOR_PRIMARY}]AI Completion Service Active[/]")
         log.write(
-            f"[dim #737373]Provider: {self.provider}  •  Model: {self.get_active_model()}  •  API Key: {'Configured' if key_ok else 'Fallback'}[/]\n"
+            f"[dim {COLOR_MUTED}]Provider: {self.provider}  •  Model: {self.get_active_model()}  •  API Key: {'Configured' if key_ok else 'Fallback'}[/]\n"
         )
 
     def action_exit_ai(self) -> None:
@@ -112,7 +90,7 @@ class AIScreen(Screen[None]):
 
     @work(thread=True)
     def query_ai_worker(self, payload: dict[str, Any]) -> None:
-        res = self.api_post("/api/ai/generate", payload)
+        res = self.api_post("/api/ai/generate", payload, timeout=60)
         self.app.call_from_thread(self._handle_ai_response, res)
 
     def _handle_ai_response(self, res: requests.Response | None) -> None:
@@ -125,19 +103,16 @@ class AIScreen(Screen[None]):
             return
 
         if res.status_code == 200:
-            try:
-                data = res.json()
-            except (ValueError, requests.exceptions.JSONDecodeError):
-                data = {}
+            data = self.client.safe_json(res)
             resp = data.get("response", {})
             reply = resp.get("reply", "").strip()
             latency = resp.get("latency_ms", 0.0)
             is_fallback = resp.get("is_fallback", False)
 
             tag = (
-                "[dim #525252](fallback offline)[/]"
+                f"[dim {COLOR_DIM}](fallback offline)[/]"
                 if is_fallback
-                else f"[dim #525252]({latency} ms)[/]"
+                else f"[dim {COLOR_DIM}]({latency} ms)[/]"
             )
             log.write(f"{escape(reply)}\n  {tag}")
             status.update(" [Esc] Back to Menu  •  Ready")
@@ -154,15 +129,12 @@ class AIScreen(Screen[None]):
             return
 
         event.input.value = ""
+        self.record_input_history(text)
         log = self.query_one(RichLog)
 
-        if text.lower() in ("/back", "/exit", "/quit"):
-            self.app.pop_screen()
+        if self.handle_common_command(text):
             return
-        elif text.lower() == "/clear":
-            log.clear()
-            return
-        elif text.startswith("/model"):
+        if text.startswith("/model"):
             parts = text.split(maxsplit=1)
             if len(parts) > 1 and parts[1].strip() != "reset":
                 self.current_model = parts[1].strip()
@@ -186,9 +158,16 @@ class AIScreen(Screen[None]):
             self.system_prompt = parts[1].strip() if len(parts) > 1 else None
             log.write(format_system_event(f"System prompt: {self.system_prompt or 'Default'}"))
             return
+        elif text.startswith("/"):
+            log.write(
+                format_system_event(
+                    f"Unknown command '{escape(text.split()[0])}'. Type /help for available commands."
+                )
+            )
+            return
 
         # Regular AI Query (non-blocking worker)
-        log.write(f"\n[bold #ffffff]>>> {escape(text)}[/]")
+        log.write(f"\n[bold {COLOR_PRIMARY}]>>> {escape(text)}[/]")
         status = self.query_one("#ai_status", Label)
         status.update(" [•] Querying upstream AI model through Reverse Proxy...")
 

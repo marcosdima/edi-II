@@ -1,23 +1,34 @@
+import json
+import ssl
 from typing import Any
 
 import requests
-import urllib3
+import websockets
 from rich.markup import escape
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
-from textual.screen import Screen
 from textual.widgets import Input, Label, RichLog
+from textual.worker import Worker
 
-from ..config import ProxyConfig, get_proxy_config
+from ..config import ProxyConfig
+from .base_screen import BaseTUIScreen, CommandSpec
 from .theme import format_chat_message, format_system_event
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-
-class ChatScreen(Screen[None]):
+class ChatScreen(BaseTUIScreen):
     """Chat conversation screen with scrolling history, background workers, and centered input."""
+
+    SCREEN_COMMANDS = [
+        CommandSpec("/help", "Show available commands & directives", aliases=("help", "?")),
+        CommandSpec("/login", "Switch active user identity", args="<username>"),
+        CommandSpec("/refresh", "Fetch latest chat messages", aliases=("poll",)),
+        CommandSpec("/clear", "Clear local message display", aliases=("clear", "cls")),
+        CommandSpec("/title", "Rename this conversation (server)", args="<name>"),
+        CommandSpec("/members", "List conversation participants (server)"),
+        CommandSpec("/leave", "Leave this conversation (server)"),
+        CommandSpec("/back", "Return to conversation selector", aliases=("/exit", "/quit")),
+    ]
 
     BINDINGS = [
         Binding("ctrl+r", "refresh", "Refresh", show=False),
@@ -32,44 +43,28 @@ class ChatScreen(Screen[None]):
         current_user: str,
         config: ProxyConfig | None = None,
     ) -> None:
-        super().__init__()
+        super().__init__(config=config)
         self.conv_id = conv_id
         self.conv_title = title
         self.current_user = current_user
-        self.config = config or get_proxy_config()
         self.last_seen_id = 0
+        self._ws_worker: Worker[None] | None = None
 
     def compose(self) -> ComposeResult:
         """Compose the layout: Header, Scrolling Message Log, Centered Input Panel."""
-        yield Horizontal(
-            Label(
-                f"#{self.conv_id} {self.conv_title}", classes="tui-header-title", id="header_title"
-            ),
-            Label(
-                f"user: {self.current_user}  |  https",
-                classes="tui-header-meta",
-                id="chat_user_meta",
-            ),
-            classes="tui-header",
+        yield self.compose_header(
+            f"#{self.conv_id} {self.conv_title}",
+            f"user: {self.current_user}  |  https",
+            title_id="header_title",
+            meta_id="chat_user_meta",
         )
-        yield Vertical(
-            RichLog(
-                classes="tui-log", id="message_log", highlight=False, markup=True, auto_scroll=True
-            ),
-            classes="tui-content",
+        yield self.compose_log_body("message_log")
+        yield self.compose_bottom_panel(
+            placeholder="Type a message, or: /back, /login <user>, /help...",
+            status_text=" [Esc] Back to Selector  •  [Ctrl+R] Refresh  •  Type /back, /login <user>, /help",
+            input_id="chat_input",
+            status_id="status_bar",
         )
-        with Vertical(classes="tui-bottom-panel"):
-            with Vertical(classes="tui-input-wrapper"):
-                yield Input(
-                    placeholder="Type a message, or: /back, /login <user>, /help...",
-                    classes="tui-input",
-                    id="chat_input",
-                )
-                yield Label(
-                    " [Esc] Back to Selector  •  [Ctrl+R] Refresh  •  Type /back, /login <user>, /help",
-                    classes="tui-status-bar",
-                    id="status_bar",
-                )
 
     def on_mount(self) -> None:
         """Focus the input field and load message history on startup."""
@@ -80,22 +75,45 @@ class ChatScreen(Screen[None]):
             self.query_one("#chat_user_meta", Label).update(f"user: {self.current_user}  |  https")
 
         self.action_refresh()
+        self._ws_worker = self.listen_websocket()
 
-    def api_get(self, endpoint: str) -> requests.Response | None:
-        """Helper to send GET requests to proxy."""
-        url = f"{self.config.https_url}{endpoint}"
-        try:
-            return requests.get(url, verify=False, timeout=8)
-        except requests.RequestException:
-            return None
+    def on_unmount(self) -> None:
+        """Cancel active WebSocket listener when leaving the chat screen."""
+        if self._ws_worker is not None:
+            self._ws_worker.cancel()
 
-    def api_post(self, endpoint: str, data: dict[str, Any]) -> requests.Response | None:
-        """Helper to send POST requests with JSON payload to proxy."""
-        url = f"{self.config.https_url}{endpoint}"
+    @work(exclusive=True, group="ws_listener")
+    async def listen_websocket(self) -> None:
+        """Stream real-time incoming messages over WSS through Nginx."""
+        ws_url = f"{self.config.wss_url}/api/chat/ws/conversations/{self.conv_id}"
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+
         try:
-            return requests.post(url, json=data, verify=False, timeout=15)
-        except requests.RequestException:
-            return None
+            async with websockets.connect(ws_url, ssl=ssl_ctx) as ws:
+                async for raw_msg in ws:
+                    if not isinstance(raw_msg, str):
+                        continue
+                    try:
+                        data = json.loads(raw_msg)
+                    except ValueError:
+                        continue
+                    if data.get("type") != "chat_message":
+                        continue
+                    msg_id = int(data.get("id", 0))
+                    if msg_id > self.last_seen_id:
+                        formatted = format_chat_message(
+                            sender=data.get("sender", "unknown"),
+                            content=data.get("content", ""),
+                            created_at=data.get("created_at", ""),
+                            current_user=self.current_user,
+                        )
+                        self.query_one(RichLog).write(formatted)
+                        self.last_seen_id = max(self.last_seen_id, msg_id)
+        except Exception:
+            # Graceful fallback: manual Ctrl+R refresh remains available
+            pass
 
     @work(thread=True)
     def action_refresh(self) -> None:
@@ -111,9 +129,8 @@ class ChatScreen(Screen[None]):
             status.update(" [!] Unable to reach server. Press Ctrl+R to retry.")
             return
 
-        try:
-            data = res.json()
-        except (ValueError, requests.exceptions.JSONDecodeError):
+        data = self.client.safe_json(res)
+        if not data:
             status.update(" [!] Invalid response from server.")
             return
 
@@ -168,10 +185,7 @@ class ChatScreen(Screen[None]):
             return
 
         if res.status_code == 201:
-            try:
-                m = res.json()
-            except (ValueError, requests.exceptions.JSONDecodeError):
-                m = {}
+            m = self.client.safe_json(res)
             msg_id = m.get("id", self.last_seen_id + 1)
             formatted = format_chat_message(
                 sender=self.current_user,
@@ -182,10 +196,7 @@ class ChatScreen(Screen[None]):
             log.write(formatted)
             self.last_seen_id = max(self.last_seen_id, msg_id)
         elif res.status_code == 200:
-            try:
-                data = res.json()
-            except (ValueError, requests.exceptions.JSONDecodeError):
-                data = {}
+            data = self.client.safe_json(res)
             directive = data.get("directive", "")
             if directive == "/title":
                 new_title = text.split(maxsplit=1)[1] if " " in text else self.conv_title
@@ -230,6 +241,7 @@ class ChatScreen(Screen[None]):
             return
 
         event.input.value = ""
+        self.record_input_history(text)
         log = self.query_one(RichLog)
 
         if text.lower() in ("/back", "/exit", "/quit", "/conversations", "back", "exit", "leave"):
@@ -255,16 +267,10 @@ class ChatScreen(Screen[None]):
                 log.write(format_system_event("Usage: /login <username>"))
             return
         if text.lower() in ("/help", "help", "?"):
-            log.write("\n[bold #ffffff]Available Commands & Directives:[/]")
-            log.write("  [bold #e5e5e5]/back, /exit, Esc[/]    Return to conversation selector")
-            log.write(
-                "  [bold #e5e5e5]/login <username>[/]    Switch active user identity in real time"
-            )
-            log.write("  [bold #e5e5e5]/refresh, Ctrl+R[/]     Fetch latest chat messages")
-            log.write("  [bold #e5e5e5]/clear, Ctrl+L[/]       Clear local message display")
-            log.write("  [bold #e5e5e5]/title <name>[/]        Rename this conversation")
-            log.write("  [bold #e5e5e5]/members[/]             List conversation participants")
-            log.write("  [bold #e5e5e5]/leave[/]               Leave this conversation\n")
+            self.show_help("Available Commands & Directives:")
+            return
+        if text.lower() == "/clear":
+            self.action_clear_log()
             return
         if text.lower() in ("/refresh", "/poll"):
             self.action_refresh()

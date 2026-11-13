@@ -52,6 +52,11 @@ class ProxyConfig:
     http_url: str
     https_url: str
 
+    @property
+    def wss_url(self) -> str:
+        """WebSocket Secure base URL derived from https_url."""
+        return self.https_url.replace("https://", "wss://", 1)
+
 
 def get_proxy_config() -> ProxyConfig:
     """Resolves proxy URLs based on environment variables or defaults."""

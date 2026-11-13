@@ -3,11 +3,9 @@ import os
 from typing import Any
 
 import requests
-import urllib3
 
+from ..client import ProxyClient
 from ..config import Colors, get_proxy_config
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class BaseView(cmd.Cmd):
@@ -16,6 +14,7 @@ class BaseView(cmd.Cmd):
     def __init__(self) -> None:
         super().__init__()
         self.config = get_proxy_config()
+        self.client = ProxyClient(self.config)
 
     def do_clear(self, arg: str) -> None:
         """Clear the terminal screen: clear"""
@@ -44,20 +43,16 @@ class BaseView(cmd.Cmd):
 
     def api_get(self, endpoint: str, timeout: int = 10) -> requests.Response | None:
         """Helper to send a GET request to the reverse proxy."""
-        url = f"{self.config.https_url}{endpoint}"
-        try:
-            return requests.get(url, verify=False, timeout=timeout)
-        except requests.RequestException as err:
-            print(Colors.err(f"Request failed: {err}"))
-            return None
+        res = self.client.get(endpoint, timeout=timeout)
+        if res is None:
+            print(Colors.err("Request failed: unable to reach reverse proxy."))
+        return res
 
     def api_post(
         self, endpoint: str, data: dict[str, Any], timeout: int = 30
     ) -> requests.Response | None:
         """Helper to send a POST request with JSON payload to the reverse proxy."""
-        url = f"{self.config.https_url}{endpoint}"
-        try:
-            return requests.post(url, json=data, verify=False, timeout=timeout)
-        except requests.RequestException as err:
-            print(Colors.err(f"Request failed: {err}"))
-            return None
+        res = self.client.post(endpoint, data, timeout=timeout)
+        if res is None:
+            print(Colors.err("Request failed: unable to reach reverse proxy."))
+        return res

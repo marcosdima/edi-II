@@ -1,7 +1,7 @@
 from typing import Any
 
 from ..config import Colors
-from ..tui import ChatApp
+from ..tui import ChatScreen, ProxyApp
 from .base import BaseView
 
 
@@ -268,7 +268,10 @@ class ChatView(BaseView):
             return
 
         title = res.json().get("title", f"Conversation #{conv_id}")
-        app = ChatApp(conv_id=conv_id, title=title, current_user=self.current_user)
+        app = ProxyApp(
+            initial_user=self.current_user,
+            initial_screen=ChatScreen(conv_id=conv_id, title=title, current_user=self.current_user),
+        )
         app.run()
         # Refresh inbox after leaving conversation
         self.do_inbox("")
