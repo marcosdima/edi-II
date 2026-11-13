@@ -323,3 +323,45 @@ def test_user_registration_and_retrieval(client):
     # 7. Non-existent user profile returns 404
     res_404 = client.get("/users/ghost_user")
     assert res_404.status_code == 404
+
+
+def test_websocket_room_broker_broadcast(client):
+    """Verify posting a message broadcasts JSON to subscribed WebSocket clients and prunes dead ones."""
+    import json
+
+    from chat.ws import room_broker
+
+    class FakeWS:
+        def __init__(self, fail: bool = False) -> None:
+            self.sent: list[str] = []
+            self.fail = fail
+
+        def send(self, data: str) -> None:
+            if self.fail:
+                raise ConnectionError("socket closed")
+            self.sent.append(data)
+
+    res_create = client.post(
+        "/conversations", json={"title": "WS Room", "participants": ["marcos"]}
+    )
+    conv_id = res_create.get_json()["conversation_id"]
+
+    live_ws = FakeWS()
+    dead_ws = FakeWS(fail=True)
+    room_broker.subscribe(conv_id, live_ws)
+    room_broker.subscribe(conv_id, dead_ws)
+
+    try:
+        res_msg = client.post(
+            f"/conversations/{conv_id}/messages",
+            json={"sender": "marcos", "content": "Realtime hello"},
+        )
+        assert res_msg.status_code == 201
+        assert len(live_ws.sent) == 1
+        payload = json.loads(live_ws.sent[0])
+        assert payload["type"] == "chat_message"
+        assert payload["sender"] == "marcos"
+        assert payload["content"] == "Realtime hello"
+    finally:
+        room_broker.unsubscribe(conv_id, live_ws)
+        room_broker.unsubscribe(conv_id, dead_ws)

@@ -186,15 +186,16 @@ class ChatScreen(BaseTUIScreen):
 
         if res.status_code == 201:
             m = self.client.safe_json(res)
-            msg_id = m.get("id", self.last_seen_id + 1)
-            formatted = format_chat_message(
-                sender=self.current_user,
-                content=text,
-                created_at=m.get("created_at", ""),
-                current_user=self.current_user,
-            )
-            log.write(formatted)
-            self.last_seen_id = max(self.last_seen_id, msg_id)
+            msg_id = int(m.get("id", self.last_seen_id + 1))
+            if msg_id > self.last_seen_id:
+                formatted = format_chat_message(
+                    sender=self.current_user,
+                    content=text,
+                    created_at=m.get("created_at", ""),
+                    current_user=self.current_user,
+                )
+                log.write(formatted)
+                self.last_seen_id = max(self.last_seen_id, msg_id)
         elif res.status_code == 200:
             data = self.client.safe_json(res)
             directive = data.get("directive", "")

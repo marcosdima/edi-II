@@ -1,9 +1,12 @@
 import os
+from typing import Any
 
 from chat.extensions import db
 from chat.routes import chat_bp
+from chat.ws import room_broker
 from dotenv import find_dotenv, load_dotenv
 from flask import Flask
+from flask_sock import Sock
 
 # Load environment variables from .env if present
 load_dotenv(find_dotenv(usecwd=True))
@@ -33,6 +36,21 @@ def create_app(database_uri: str | None = None) -> Flask:
         db.create_all()
 
     app.register_blueprint(chat_bp)
+
+    sock = Sock(app)
+
+    @sock.route("/ws/conversations/<int:conv_id>")
+    def conversation_ws(ws: Any, conv_id: int) -> None:
+        """WebSocket endpoint streaming real-time messages for a conversation."""
+        room_broker.subscribe(conv_id, ws)
+        try:
+            while True:
+                data = ws.receive()
+                if data is None:
+                    break
+        finally:
+            room_broker.unsubscribe(conv_id, ws)
+
     return app
 
 

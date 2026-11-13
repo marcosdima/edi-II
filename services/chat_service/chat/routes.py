@@ -7,6 +7,7 @@ from .services import (
     ParticipantService,
     UserService,
 )
+from .ws import room_broker
 
 chat_bp = Blueprint("chat", __name__)
 
@@ -250,16 +251,20 @@ def post_message(conv_id: int):
 
     # Persist chat message via service
     message = MessageService.create_message(conv_id=conv_id, sender=sender, content=content)
+    event_payload = {
+        "type": "chat_message",
+        "id": message.id,
+        "conversation_id": conv_id,
+        "sender": sender,
+        "content": content,
+        "created_at": message.created_at.isoformat(),
+    }
+    room_broker.broadcast(conv_id, event_payload)
 
     return (
         jsonify(
             {
-                "type": "chat_message",
-                "id": message.id,
-                "conversation_id": conv_id,
-                "sender": sender,
-                "content": content,
-                "created_at": message.created_at.isoformat(),
+                **event_payload,
                 "proxy_metadata": get_proxy_metadata(),
             }
         ),
