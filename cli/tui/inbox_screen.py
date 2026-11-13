@@ -360,7 +360,10 @@ class InboxScreen(BaseTUIScreen):
                 self.action_refresh()
                 self.select_conversation(cid)
             else:
-                log.write(format_system_event("Failed to create conversation."))
+                err_msg = (
+                    self.client.safe_json(res).get("error") or "Failed to create conversation."
+                )
+                log.write(format_system_event(escape(str(err_msg))))
             return
         else:
             log.write(

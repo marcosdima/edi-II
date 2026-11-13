@@ -114,7 +114,10 @@ def create_conversation():
     if not clean_participants:
         return jsonify({"error": "At least 1 valid username is required."}), 400
 
-    conversation = ConversationService.create(title=title, participants=clean_participants)
+    try:
+        conversation = ConversationService.create(title=title, participants=clean_participants)
+    except ValueError as err:
+        return jsonify({"error": str(err)}), 400
 
     return (
         jsonify(

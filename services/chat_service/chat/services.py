@@ -34,14 +34,19 @@ class ConversationService:
 
     @staticmethod
     def create(title: str, participants: list[str]) -> Conversation:
-        """Creates a conversation and associates initial participants in a single transaction."""
+        """Creates a conversation and associates existing registered participants."""
+        clean_names = [username.strip().lower() for username in participants]
+        missing = [name for name in clean_names if not UserService.get_by_username(name)]
+        if missing:
+            raise ValueError(
+                f"Unregistered user(s): {', '.join(missing)}. Register before creating a conversation."
+            )
+
         conversation = Conversation(title=title)
         db.session.add(conversation)
         db.session.flush()
 
-        for username in participants:
-            clean_name = username.strip().lower()
-            UserService.register(clean_name)
+        for clean_name in clean_names:
             db.session.add(Participant(conversation_id=conversation.id, username=clean_name))
 
         db.session.commit()

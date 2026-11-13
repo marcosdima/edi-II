@@ -13,6 +13,11 @@ def client(tmp_path):
         yield client
 
 
+def _register_users(client, *usernames: str) -> None:
+    for u in usernames:
+        client.post("/auth/register", json={"username": u, "display_name": u.capitalize()})
+
+
 def test_health_check(client):
     """Verify health endpoint returns healthy status."""
     response = client.get("/health")
@@ -24,6 +29,7 @@ def test_health_check(client):
 
 def test_create_conversation_success(client):
     """Verify valid conversation creation with initial participants."""
+    _register_users(client, "marcos", "profe")
     payload = {"title": "Team Alpha", "participants": ["marcos", "profe"]}
     response = client.post("/conversations", json=payload)
 
@@ -46,8 +52,20 @@ def test_create_conversation_validation_error(client):
     assert res.status_code == 400
 
 
+def test_create_conversation_unregistered_user_error(client):
+    """Verify conversation creation fails if any participant is not registered."""
+    _register_users(client, "marcos")
+    res = client.post(
+        "/conversations",
+        json={"title": "Invalid Room", "participants": ["marcos", "unregistered_user"]},
+    )
+    assert res.status_code == 400
+    assert "unregistered_user" in res.get_json()["error"]
+
+
 def test_list_user_conversations(client):
     """Verify fetching conversation inbox for a specific user."""
+    _register_users(client, "marcos", "profe", "lucas")
     # Create two conversations: one with marcos & profe, another with marcos & lucas
     client.post("/conversations", json={"title": "Conv 1", "participants": ["marcos", "profe"]})
     client.post("/conversations", json={"title": "Conv 2", "participants": ["marcos", "lucas"]})
@@ -70,6 +88,7 @@ def test_list_user_conversations(client):
 
 def test_add_participant(client):
     """Verify adding a new participant to an existing conversation."""
+    _register_users(client, "marcos", "profe")
     res_create = client.post("/conversations", json={"title": "Room", "participants": ["marcos"]})
     conv_id = res_create.get_json()["conversation_id"]
 
@@ -89,6 +108,7 @@ def test_add_participant(client):
 
 def test_post_and_get_chat_messages(client):
     """Verify posting regular messages and reading conversation history."""
+    _register_users(client, "marcos", "profe")
     res_create = client.post(
         "/conversations", json={"title": "Chat Room", "participants": ["marcos", "profe"]}
     )
@@ -123,6 +143,7 @@ def test_post_and_get_chat_messages(client):
 
 def test_post_message_forbidden_non_participant(client):
     """Verify non-participants cannot post messages into private conversations."""
+    _register_users(client, "marcos", "profe")
     res_create = client.post(
         "/conversations", json={"title": "Private", "participants": ["marcos", "profe"]}
     )
@@ -138,6 +159,7 @@ def test_post_message_forbidden_non_participant(client):
 
 def test_system_directive_help(client):
     """Verify /help returns directives without persisting a chat message."""
+    _register_users(client, "marcos")
     res_create = client.post(
         "/conversations", json={"title": "Commands Room", "participants": ["marcos"]}
     )
@@ -160,6 +182,7 @@ def test_system_directive_help(client):
 
 def test_system_directive_title(client):
     """Verify /title renames the conversation and is not stored as a message."""
+    _register_users(client, "marcos")
     res_create = client.post(
         "/conversations", json={"title": "Old Title", "participants": ["marcos"]}
     )
@@ -187,6 +210,7 @@ def test_system_directive_title(client):
 
 def test_system_directive_members(client):
     """Verify /members lists all participants."""
+    _register_users(client, "marcos", "profe")
     res_create = client.post(
         "/conversations", json={"title": "Team", "participants": ["marcos", "profe"]}
     )
@@ -207,6 +231,7 @@ def test_system_directive_members(client):
 
 def test_system_directive_leave(client):
     """Verify /leave removes the participant so they can no longer post."""
+    _register_users(client, "marcos", "profe")
     res_create = client.post(
         "/conversations", json={"title": "Leaving Room", "participants": ["marcos", "profe"]}
     )
@@ -229,6 +254,7 @@ def test_system_directive_leave(client):
 
 def test_system_directive_clear(client):
     """Verify /clear wipes message history while keeping conversation intact."""
+    _register_users(client, "marcos")
     res_create = client.post(
         "/conversations", json={"title": "Clear Room", "participants": ["marcos"]}
     )
@@ -262,6 +288,7 @@ def test_system_directive_clear(client):
 
 def test_system_directive_unknown(client):
     """Verify unrecognized directives return 400 with a guiding error."""
+    _register_users(client, "marcos")
     res_create = client.post(
         "/conversations", json={"title": "Directives", "participants": ["marcos"]}
     )
@@ -341,6 +368,7 @@ def test_websocket_room_broker_broadcast(client):
                 raise ConnectionError("socket closed")
             self.sent.append(data)
 
+    _register_users(client, "marcos")
     res_create = client.post(
         "/conversations", json={"title": "WS Room", "participants": ["marcos"]}
     )
