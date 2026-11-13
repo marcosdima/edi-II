@@ -24,7 +24,7 @@ class AIView(BaseView):
     def update_prompt(self) -> None:
         """Updates the command prompt with the active model."""
         active = self.get_active_model()
-        self.prompt = f"{Colors.BOLD}{Colors.YELLOW}proxy-cli [ai:{active}]>{Colors.RESET} "
+        self.prompt = f"{Colors.BOLD}ai [{active}]>{Colors.RESET} "
 
     def fetch_info(self) -> dict[str, Any] | None:
         """Fetches service configuration from /api/ai/info."""
@@ -44,7 +44,7 @@ class AIView(BaseView):
 
         self.update_prompt()
 
-        print(f"\n{Colors.BOLD}{Colors.YELLOW}=== AI Completion Assistant ==={Colors.RESET}")
+        print(f"\n{Colors.BOLD}─── AI Completion Assistant ───{Colors.RESET}")
         print(
             f"Provider: {Colors.BOLD}{self.provider}{Colors.RESET} | "
             f"Model: {Colors.BOLD}{self.get_active_model()}{Colors.RESET} | "
@@ -89,9 +89,9 @@ class AIView(BaseView):
         latency = resp.get("latency_ms", 0.0)
 
         status_tag = (
-            f"{Colors.YELLOW}[FALLBACK / OFFLINE]{Colors.RESET}"
+            f"{Colors.DIM}[fallback]{Colors.RESET}"
             if is_fallback
-            else f"{Colors.GREEN}[ONLINE: {model}]{Colors.RESET}"
+            else f"{Colors.BOLD}[{model}]{Colors.RESET}"
         )
 
         print(f"\n{status_tag} {Colors.DIM}(latency: {latency} ms){Colors.RESET}")

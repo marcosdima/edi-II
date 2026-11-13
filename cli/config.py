@@ -8,7 +8,7 @@ load_dotenv(find_dotenv(usecwd=True))
 
 
 class Colors:
-    """ANSI color escape codes for terminal formatting."""
+    """ANSI color escape codes for terminal formatting (minimalist monochrome)."""
 
     RESET = "\033[0m"
     BOLD = "\033[1m"
@@ -24,23 +24,23 @@ class Colors:
 
     @classmethod
     def ok(cls, text: str) -> str:
-        return f"{cls.GREEN}✓ {text}{cls.RESET}"
+        return f"{cls.BOLD}✓ {text}{cls.RESET}"
 
     @classmethod
     def err(cls, text: str) -> str:
-        return f"{cls.RED}✗ {text}{cls.RESET}"
+        return f"{cls.BOLD}✗ {text}{cls.RESET}"
 
     @classmethod
     def info(cls, text: str) -> str:
-        return f"{cls.CYAN}ℹ {text}{cls.RESET}"
+        return f"{cls.DIM}• {text}{cls.RESET}"
 
     @classmethod
     def warn(cls, text: str) -> str:
-        return f"{cls.YELLOW}⚠ {text}{cls.RESET}"
+        return f"{cls.BOLD}! {text}{cls.RESET}"
 
     @classmethod
     def header(cls, text: str) -> str:
-        return f"\n{cls.BOLD}{cls.BLUE}=== {text} ==={cls.RESET}"
+        return f"\n{cls.BOLD}─── {text} ───{cls.RESET}"
 
 
 @dataclass
