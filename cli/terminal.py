@@ -6,6 +6,7 @@ import sys
 from .config import Colors, get_proxy_config
 from .manager import DockerManager
 from .tester import ProxyTester
+from .tui import ProxyApp
 from .views import AIView, ChatView
 
 
@@ -13,9 +14,9 @@ class InteractiveTerminal(cmd.Cmd):
     """Interactive command-line terminal to manage containers and test the Reverse Proxy."""
 
     intro = f"""
-{Colors.BOLD}{Colors.CYAN}======================================================{Colors.RESET}
-{Colors.BOLD}{Colors.CYAN}       Nginx Reverse Proxy Management & Test CLI      {Colors.RESET}
-{Colors.BOLD}{Colors.CYAN}======================================================{Colors.RESET}
+{Colors.BOLD}──────────────────────────────────────────────────────{Colors.RESET}
+{Colors.BOLD}       Nginx Reverse Proxy Management & Test CLI      {Colors.RESET}
+{Colors.BOLD}──────────────────────────────────────────────────────{Colors.RESET}
 Type {Colors.BOLD}'chat'{Colors.RESET} to enter the interactive Chat system (or 'chat test').
 Type {Colors.BOLD}'ai'{Colors.RESET} to enter the interactive AI assistant view (or 'ai <prompt>').
 Type {Colors.BOLD}'security'{Colors.RESET} to test rate limiting, GeoIP blocking & headers.
@@ -24,7 +25,7 @@ Type {Colors.BOLD}'status'{Colors.RESET} to inspect container health.
 Type {Colors.BOLD}'test'{Colors.RESET} to run the complete end-to-end proxy test suite.
 Type {Colors.BOLD}'help'{Colors.RESET} to list available commands. Type {Colors.BOLD}'exit'{Colors.RESET} or Ctrl+D to quit.
 """
-    prompt = f"{Colors.BOLD}{Colors.CYAN}proxy-cli>{Colors.RESET} "
+    prompt = f"{Colors.BOLD}proxy-cli>{Colors.RESET} "
 
     def __init__(self) -> None:
         super().__init__()
@@ -213,9 +214,9 @@ def main() -> int:
     """CLI entrypoint supporting both direct arguments and interactive shell."""
     parser = build_parser()
 
-    # If no arguments passed, launch interactive terminal
+    # If no arguments passed, launch unified modern TUI dashboard
     if len(sys.argv) == 1:
-        InteractiveTerminal().cmdloop()
+        ProxyApp().run()
         return 0
 
     args = parser.parse_args()

@@ -1,6 +1,7 @@
 from typing import Any
 
 from ..config import Colors
+from ..tui import ChatApp
 from .base import BaseView
 
 
@@ -12,7 +13,7 @@ class ConversationView(BaseView):
         self.conv_id = conv_id
         self.title = title
         self.current_user = current_user
-        self.prompt = f'{Colors.BOLD}{Colors.MAGENTA}chat:{self.current_user} [#{self.conv_id} "{self.title}"]>{Colors.RESET} '
+        self.prompt = f"{Colors.BOLD}chat [{self.current_user} #{self.conv_id}]>{Colors.RESET} "
         self.last_seen_message_id = 0
 
     def print_messages(self, messages: list[dict[str, Any]]) -> None:
@@ -126,14 +127,12 @@ class ChatView(BaseView):
         self.update_prompt()
 
     def update_prompt(self) -> None:
-        self.prompt = (
-            f"{Colors.BOLD}{Colors.CYAN}proxy-cli [chat:{self.current_user}]>{Colors.RESET} "
-        )
+        self.prompt = f"{Colors.BOLD}chat [{self.current_user}]>{Colors.RESET} "
 
     def preloop(self) -> None:
         # Automatically ensure the user exists on entry
         self._ensure_user(self.current_user)
-        print(f"\n{Colors.BOLD}{Colors.CYAN}=== Chat View ==={Colors.RESET}")
+        print(f"\n{Colors.BOLD}─── Chat Inbox ───{Colors.RESET}")
         print(f"Logged in as: {Colors.BOLD}{self.current_user}{Colors.RESET}")
         print(
             Colors.info(
@@ -182,9 +181,7 @@ class ChatView(BaseView):
         for u in users:
             uname = u.get("username", "")
             dname = u.get("display_name", "")
-            active_badge = (
-                f"{Colors.GREEN}(you){Colors.RESET}" if uname == self.current_user else ""
-            )
+            active_badge = f"{Colors.BOLD}(you){Colors.RESET}" if uname == self.current_user else ""
             print(f"  • {Colors.BOLD}{uname:<15}{Colors.RESET} {dname:<25} {active_badge}")
 
     def do_inbox(self, arg: str) -> None:
@@ -271,7 +268,7 @@ class ChatView(BaseView):
             return
 
         title = res.json().get("title", f"Conversation #{conv_id}")
-        conv_view = ConversationView(conv_id=conv_id, title=title, current_user=self.current_user)
-        conv_view.cmdloop()
+        app = ChatApp(conv_id=conv_id, title=title, current_user=self.current_user)
+        app.run()
         # Refresh inbox after leaving conversation
         self.do_inbox("")
