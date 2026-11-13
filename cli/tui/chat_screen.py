@@ -91,7 +91,12 @@ class ChatScreen(BaseTUIScreen):
         ssl_ctx.verify_mode = ssl.CERT_NONE
 
         try:
-            async with websockets.connect(ws_url, ssl=ssl_ctx) as ws:
+            headers = self.config.default_headers
+            async with websockets.connect(
+                ws_url,
+                ssl=ssl_ctx,
+                additional_headers=headers or None,
+            ) as ws:
                 async for raw_msg in ws:
                     if not isinstance(raw_msg, str):
                         continue

@@ -31,6 +31,26 @@ def test_proxy_config_custom_ports(monkeypatch):
     assert cfg.https_port == 8443
     assert cfg.http_url == "http://localhost:8080"
     assert cfg.https_url == "https://localhost:8443"
+    assert cfg.default_headers == {}
+
+
+def test_proxy_config_custom_host_and_optional_ngrok_header(monkeypatch):
+    """Verify PROXY_HOST supports remote/ngrok URLs and enables ngrok header only when needed."""
+    monkeypatch.delenv("PROXY_HTTP_PORT", raising=False)
+    monkeypatch.delenv("PROXY_HTTPS_PORT", raising=False)
+    monkeypatch.delenv("PROXY_NGROK_SKIP_WARNING", raising=False)
+
+    monkeypatch.setenv("PROXY_HOST", "https://my-vps.example.com/")
+    cfg_vps = get_proxy_config()
+    assert cfg_vps.https_url == "https://my-vps.example.com"
+    assert cfg_vps.wss_url == "wss://my-vps.example.com"
+    assert cfg_vps.default_headers == {}
+
+    monkeypatch.setenv("PROXY_HOST", "https://abc123.ngrok-free.app/")
+    cfg_ngrok = get_proxy_config()
+    assert cfg_ngrok.https_url == "https://abc123.ngrok-free.app"
+    assert cfg_ngrok.wss_url == "wss://abc123.ngrok-free.app"
+    assert cfg_ngrok.default_headers == {"ngrok-skip-browser-warning": "true"}
 
 
 @patch("cli.manager.subprocess.run")

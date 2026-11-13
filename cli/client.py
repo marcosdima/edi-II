@@ -19,8 +19,9 @@ class ProxyClient:
     def get(self, endpoint: str, timeout: int = 8) -> requests.Response | None:
         """Send a GET request to the reverse proxy."""
         url = f"{self.config.https_url}{endpoint}"
+        headers = self.config.default_headers or None
         try:
-            return requests.get(url, verify=False, timeout=timeout)
+            return requests.get(url, headers=headers, verify=False, timeout=timeout)
         except requests.RequestException:
             return None
 
@@ -29,8 +30,9 @@ class ProxyClient:
     ) -> requests.Response | None:
         """Send a POST request with JSON payload to the reverse proxy."""
         url = f"{self.config.https_url}{endpoint}"
+        headers = self.config.default_headers or None
         try:
-            return requests.post(url, json=data, verify=False, timeout=timeout)
+            return requests.post(url, json=data, headers=headers, verify=False, timeout=timeout)
         except requests.RequestException:
             return None
 

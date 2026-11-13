@@ -51,15 +51,26 @@ class ProxyConfig:
     https_port: int
     http_url: str
     https_url: str
+    host: str = "localhost"
 
     @property
     def wss_url(self) -> str:
         """WebSocket Secure base URL derived from https_url."""
         return self.https_url.replace("https://", "wss://", 1)
 
+    @property
+    def default_headers(self) -> dict[str, str]:
+        """Optional headers (auto-enabled only for ngrok tunnels or explicit env flag)."""
+        skip_env = os.getenv("PROXY_NGROK_SKIP_WARNING", "").strip().lower()
+        if "ngrok" in self.host.lower() or skip_env in ("1", "true", "yes"):
+            return {"ngrok-skip-browser-warning": "true"}
+        return {}
+
 
 def get_proxy_config() -> ProxyConfig:
     """Resolves proxy URLs based on environment variables or defaults."""
+    raw_host = os.getenv("PROXY_HOST", "localhost").strip()
+    host = raw_host.removeprefix("https://").removeprefix("http://").rstrip("/") or "localhost"
     raw_http = os.getenv("PROXY_HTTP_PORT", "80").strip()
     raw_https = os.getenv("PROXY_HTTPS_PORT", "443").strip()
 
@@ -73,12 +84,13 @@ def get_proxy_config() -> ProxyConfig:
     except ValueError:
         https_port = 443
 
-    http_url = "http://localhost" if http_port == 80 else f"http://localhost:{http_port}"
-    https_url = "https://localhost" if https_port == 443 else f"https://localhost:{https_port}"
+    http_url = f"http://{host}" if http_port == 80 else f"http://{host}:{http_port}"
+    https_url = f"https://{host}" if https_port == 443 else f"https://{host}:{https_port}"
 
     return ProxyConfig(
         http_port=http_port,
         https_port=https_port,
         http_url=http_url,
         https_url=https_url,
+        host=host,
     )
