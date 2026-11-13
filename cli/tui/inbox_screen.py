@@ -41,7 +41,8 @@ class InboxScreen(BaseTUIScreen):
 
     SCREEN_COMMANDS = [
         CommandSpec("/help", "Show available commands", aliases=("help", "?")),
-        CommandSpec("/login", "Switch active user identity", args="<username>"),
+        CommandSpec("/register", "Create a new user account", args="<username> [name]"),
+        CommandSpec("/login", "Switch active user (auto-creates if new)", args="<username>"),
         CommandSpec("/new", "Create new chat room", args='"Title" u1,u2'),
         CommandSpec("/users", "List registered users on server", aliases=("users",)),
         CommandSpec("/refresh", "Reload conversations", aliases=("refresh", "poll")),
@@ -81,7 +82,13 @@ class InboxScreen(BaseTUIScreen):
         yield Label("", id="pagination_dots")
         with Vertical(id="inbox_log_container"):
             yield RichLog(
-                classes="tui-log", id="inbox_log", highlight=False, markup=True, auto_scroll=True
+                classes="tui-log",
+                id="inbox_log",
+                wrap=True,
+                min_width=20,
+                highlight=False,
+                markup=True,
+                auto_scroll=True,
             )
         yield self.compose_bottom_panel(
             placeholder="Enter conversation ID (e.g. 12, 0 for new), or: /login <user>, users...",
@@ -273,6 +280,32 @@ class InboxScreen(BaseTUIScreen):
         elif cmd == "open" and len(parts) > 1 and parts[1].isdigit():
             self.select_conversation(int(parts[1]))
             return
+        elif cmd == "register":
+            if len(parts) < 2:
+                log.write(format_system_event("Usage: /register <username> [display_name]"))
+                return
+            new_user = parts[1].strip().lower()
+            display_name = " ".join(parts[2:]).strip() or new_user.capitalize()
+            res = self.api_post(
+                "/api/chat/auth/register",
+                {"username": new_user, "display_name": display_name},
+            )
+            if res and res.status_code in (200, 201):
+                self.current_user = new_user
+                app_state: Any = self.app
+                app_state.current_user = self.current_user
+                self.query_one("#inbox_user_meta", Label).update(f"user: {self.current_user}")
+                self.current_page = 0
+                self.action_refresh()
+                status_msg = self.client.safe_json(res).get("status", "registered")
+                log.write(
+                    format_system_event(
+                        f"User '{escape(new_user)}' ({status_msg}). Active user switched."
+                    )
+                )
+            else:
+                log.write(format_system_event("Failed to register user."))
+            return
         elif cmd == "login" and len(parts) > 1:
             self.current_user = parts[1].lower()
             app_state: Any = self.app
@@ -288,16 +321,18 @@ class InboxScreen(BaseTUIScreen):
             res = self.api_get("/api/chat/users")
             if res and res.status_code == 200:
                 users = self.client.safe_json(res).get("users", [])
-                log.write(f"\n[bold {COLOR_PRIMARY}]Registered Users:[/]")
+                if not users:
+                    log.write(format_system_event("No registered users found."))
+                    return
+                items: list[str] = []
                 for u in users:
                     un = u.get("username", "")
-                    dn = u.get("display_name", "")
-                    badge = f"[bold {COLOR_PRIMARY}](you)[/]" if un == self.current_user else ""
-                    log.write(
-                        f"  • [bold {COLOR_FOREGROUND}]{escape(un):<15}[/] "
-                        f"[dim {COLOR_MUTED}]{escape(dn):<25}[/] {badge}"
-                    )
-                log.write("")
+                    badge = f" [bold {COLOR_PRIMARY}](you)[/]" if un == self.current_user else ""
+                    items.append(f"[bold {COLOR_FOREGROUND}]{escape(un)}[/]{badge}")
+                log.write(
+                    f"[bold {COLOR_PRIMARY}]Registered Users ({len(users)}):[/] "
+                    + "  •  ".join(items)
+                )
             return
         elif cmd == "new":
             raw = text[4:].strip()
