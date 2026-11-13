@@ -142,6 +142,14 @@ def list_user_conversations(username: str):
             "title": p.conversation.title,
             "created_at": p.conversation.created_at.isoformat(),
             "joined_at": p.joined_at.isoformat(),
+            "last_messages": [
+                {
+                    "sender": m.sender,
+                    "content": m.content,
+                    "created_at": m.created_at.isoformat(),
+                }
+                for m in MessageService.get_last_messages(p.conversation.id, limit=3)
+            ],
         }
         for p in user_participations
     ]

@@ -154,3 +154,14 @@ class MessageService:
             .limit(limit)
             .all()
         )
+
+    @staticmethod
+    def get_last_messages(conv_id: int, limit: int = 3) -> list[Message]:
+        """Retrieves the latest messages for a conversation in chronological order."""
+        messages = (
+            Message.query.filter_by(conversation_id=conv_id)
+            .order_by(Message.id.desc())
+            .limit(limit)
+            .all()
+        )
+        return list(reversed(messages))
