@@ -306,7 +306,10 @@ class InboxScreen(BaseTUIScreen):
             else:
                 log.write(format_system_event("Failed to register user."))
             return
-        elif cmd == "login" and len(parts) > 1:
+        elif cmd == "login":
+            if len(parts) < 2:
+                log.write(format_system_event("Usage: /login <username>"))
+                return
             self.current_user = parts[1].lower()
             app_state: Any = self.app
             app_state.current_user = self.current_user

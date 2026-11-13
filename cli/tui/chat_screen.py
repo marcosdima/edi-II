@@ -229,6 +229,9 @@ class ChatScreen(BaseTUIScreen):
                     )
             else:
                 log.write(format_system_event(f"Directive executed: {escape(res.text)}"))
+        elif res.status_code == 400:
+            err_msg = self.client.safe_json(res).get("error") or res.text
+            log.write(format_system_event(escape(str(err_msg))))
         elif res.status_code == 403:
             log.write(
                 format_system_event("Forbidden: You are not an active participant in this chat.")
@@ -281,5 +284,15 @@ class ChatScreen(BaseTUIScreen):
         if text.lower() in ("/refresh", "/poll"):
             self.action_refresh()
             return
+        if text.startswith("/"):
+            cmd_token = text.split()[0].lower()
+            server_directives = {"/title", "/members", "/leave"}
+            if cmd_token not in server_directives:
+                log.write(
+                    format_system_event(
+                        f"Unknown command '{escape(cmd_token)}'. Type /help for available commands."
+                    )
+                )
+                return
 
         self.send_message_worker(text)
