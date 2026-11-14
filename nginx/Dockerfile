@@ -12,7 +12,7 @@ RUN chmod +x /docker-entrypoint.d/00-generate-certs.sh && \
 
 # Copy custom Nginx configuration files
 COPY nginx.conf /etc/nginx/nginx.conf
-COPY conf.d/proxy.conf /etc/nginx/conf.d/proxy.conf
+COPY conf.d/ /etc/nginx/conf.d/
 
 # Remove default site configuration if present
 RUN rm -f /etc/nginx/conf.d/default.conf

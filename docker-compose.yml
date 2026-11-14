@@ -14,8 +14,10 @@ services:
       - "${PROXY_HTTP_PORT:-80}:80"    # HTTP (redirects to HTTPS)
       - "${PROXY_HTTPS_PORT:-443}:443"  # HTTPS (TLS termination and routing)
     depends_on:
-      - chat-service
-      - ai-service
+      chat-service:
+        condition: service_healthy
+      ai-service:
+        condition: service_healthy
     networks:
       - app-network
     restart: unless-stopped
@@ -37,6 +39,12 @@ services:
     # Named volume ensures SQLite database survives container restarts & rebuilds
     volumes:
       - chat_data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
     networks:
       - app-network
     restart: unless-stopped
@@ -53,6 +61,12 @@ services:
     env_file:
       - path: .env
         required: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
     networks:
       - app-network
     restart: unless-stopped
