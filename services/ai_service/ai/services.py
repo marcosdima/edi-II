@@ -84,6 +84,7 @@ class AIService:
             "default_model": os.getenv("AI_MODEL", DEFAULT_MODELS[provider]),
             "endpoint": PROVIDER_ENDPOINTS[provider],
             "api_key_configured": bool(api_key),
+            "offline_fallback_enabled": True,
             "offline_mode_forced": cls.is_offline_mode(),
             "timeout_seconds": cls.get_timeout(),
         }

@@ -42,9 +42,13 @@ class ConversationService:
                 f"Unregistered user(s): {', '.join(missing)}. Register before creating a conversation."
             )
 
-        conversation = Conversation(title=title)
+        clean_title = title.strip() if isinstance(title, str) else ""
+        conversation = Conversation(title=clean_title or "Conver")
         db.session.add(conversation)
         db.session.flush()
+
+        if not clean_title:
+            conversation.title = f"Conver #{conversation.id}"
 
         for clean_name in clean_names:
             db.session.add(Participant(conversation_id=conversation.id, username=clean_name))

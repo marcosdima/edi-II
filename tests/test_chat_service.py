@@ -41,6 +41,15 @@ def test_create_conversation_success(client):
     assert "conversation_id" in data
 
 
+def test_create_conversation_without_title_defaults_to_conver_id(client):
+    """Verify creating a conversation without title defaults to 'Conver #<id>'."""
+    _register_users(client, "marcos")
+    res = client.post("/conversations", json={"participants": ["marcos"]})
+    assert res.status_code == 201
+    data = res.get_json()
+    assert data["title"] == f"Conver #{data['conversation_id']}"
+
+
 def test_create_conversation_validation_error(client):
     """Verify invalid payloads are rejected with 400 Bad Request."""
     # Missing participants

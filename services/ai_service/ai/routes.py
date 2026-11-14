@@ -59,14 +59,20 @@ def generate_completion():
         "temperature": 0.7
       }
     """
-    data = request.get_json(silent=True) or {}
-    prompt = data.get("prompt", "").strip()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        data = {}
+
+    raw_prompt = data.get("prompt")
+    prompt = raw_prompt.strip() if isinstance(raw_prompt, str) else ""
 
     if not prompt:
         return jsonify({"error": "'prompt' field is required."}), 400
 
-    system_prompt = data.get("system_prompt")
-    model = data.get("model")
+    raw_sys = data.get("system_prompt")
+    system_prompt = raw_sys.strip() if isinstance(raw_sys, str) and raw_sys.strip() else None
+    raw_model = data.get("model")
+    model = raw_model.strip() if isinstance(raw_model, str) and raw_model.strip() else None
     try:
         temperature = float(data.get("temperature", 0.7))
     except (ValueError, TypeError):

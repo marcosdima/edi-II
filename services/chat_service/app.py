@@ -3,10 +3,12 @@ from typing import Any
 
 from chat.extensions import db
 from chat.routes import chat_bp
+from chat.services import ConversationService
 from chat.ws import room_broker
 from dotenv import find_dotenv, load_dotenv
 from flask import Flask
 from flask_sock import Sock
+from sqlalchemy import event
 
 # Load environment variables from .env if present
 load_dotenv(find_dotenv(usecwd=True))
@@ -33,6 +35,17 @@ def create_app(database_uri: str | None = None) -> Flask:
     db.init_app(app)
 
     with app.app_context():
+        if app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite:///") and (
+            ":memory:" not in app.config["SQLALCHEMY_DATABASE_URI"]
+        ):
+
+            @event.listens_for(db.engine, "connect")
+            def _set_sqlite_pragma(dbapi_conn: Any, _connection_record: Any) -> None:
+                cursor = dbapi_conn.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL;")
+                cursor.execute("PRAGMA busy_timeout=5000;")
+                cursor.close()
+
         db.create_all()
 
     app.register_blueprint(chat_bp)
@@ -42,6 +55,11 @@ def create_app(database_uri: str | None = None) -> Flask:
     @sock.route("/ws/conversations/<int:conv_id>")
     def conversation_ws(ws: Any, conv_id: int) -> None:
         """WebSocket endpoint streaming real-time messages for a conversation."""
+        with app.app_context():
+            if not ConversationService.get_by_id(conv_id):
+                ws.close()
+                return
+
         room_broker.subscribe(conv_id, ws)
         try:
             while True:

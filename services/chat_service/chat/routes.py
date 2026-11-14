@@ -27,6 +27,17 @@ def health_check():
     return jsonify({"service": "chat-service", "status": "healthy"}), 200
 
 
+def _json_dict() -> dict:
+    """Return parsed JSON body as a dict, or empty dict if missing/invalid."""
+    data = request.get_json(silent=True)
+    return data if isinstance(data, dict) else {}
+
+
+def _clean_str(value: object) -> str:
+    """Safely strip a string value, returning empty string for non-strings."""
+    return value.strip() if isinstance(value, str) else ""
+
+
 # -----------------------------------------------------------------------------
 # User Identity & Authentication Endpoints
 # -----------------------------------------------------------------------------
@@ -38,9 +49,9 @@ def register_user():
     Registers a new user in the system.
     Payload: {"username": "marcos", "display_name": "Marcos Di Matteo"}
     """
-    data = request.get_json(silent=True) or {}
-    username = data.get("username", "").strip()
-    display_name = data.get("display_name", "").strip() or None
+    data = _json_dict()
+    username = _clean_str(data.get("username"))
+    display_name = _clean_str(data.get("display_name")) or None
 
     if not username:
         return jsonify({"error": "'username' is required."}), 400
@@ -100,8 +111,8 @@ def create_conversation():
     Creates a new conversation with initial participants.
     Payload: {"title": "Team Chat", "participants": ["marcos", "profe"]}
     """
-    data = request.get_json(silent=True) or {}
-    title = data.get("title", "Untitled Conversation")
+    data = _json_dict()
+    title = _clean_str(data.get("title"))
     participants = data.get("participants", [])
 
     if not isinstance(participants, list) or len(participants) < 1:
@@ -110,7 +121,9 @@ def create_conversation():
             400,
         )
 
-    clean_participants = sorted({p.strip().lower() for p in participants if p.strip()})
+    clean_participants = sorted(
+        {_clean_str(p).lower() for p in participants if isinstance(p, str) and p.strip()}
+    )
     if not clean_participants:
         return jsonify({"error": "At least 1 valid username is required."}), 400
 
@@ -174,8 +187,8 @@ def list_user_conversations(username: str):
 @chat_bp.route("/conversations/<int:conv_id>/participants", methods=["POST"])
 def add_participant(conv_id: int):
     """Adds a participant to an existing conversation."""
-    data = request.get_json(silent=True) or {}
-    username = data.get("username", "").strip().lower()
+    data = _json_dict()
+    username = _clean_str(data.get("username")).lower()
 
     if not username:
         return jsonify({"error": "'username' is required."}), 400
@@ -200,7 +213,11 @@ def add_participant(conv_id: int):
 @chat_bp.route("/conversations/<int:conv_id>/messages", methods=["GET"])
 def get_conversation_messages(conv_id: int):
     """Retrieves all chat messages for a conversation in chronological order."""
-    limit = min(int(request.args.get("limit", 50)), 100)
+    try:
+        raw_limit = int(request.args.get("limit", 50))
+    except (ValueError, TypeError):
+        return jsonify({"error": "'limit' must be a valid integer."}), 400
+    limit = max(1, min(raw_limit, 100))
 
     conversation = ConversationService.get_by_id(conv_id)
     if not conversation:
@@ -230,9 +247,9 @@ def post_message(conv_id: int):
     - Otherwise, saves as a persistent chat message.
     Payload: {"sender": "marcos", "content": "Hello world" | "/command"}
     """
-    data = request.get_json(silent=True) or {}
-    sender = data.get("sender", "").strip().lower()
-    content = data.get("content", "").strip()
+    data = _json_dict()
+    sender = _clean_str(data.get("sender")).lower()
+    content = _clean_str(data.get("content"))
 
     if not sender or not content:
         return jsonify({"error": "'sender' and 'content' are required fields."}), 400
