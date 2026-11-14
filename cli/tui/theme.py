@@ -251,6 +251,111 @@ Screen {
     color: #525252;
     margin-top: 0;
 }
+
+/* Modal dialog for creating a new conversation */
+NewConversationModal {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.78);
+}
+
+#new_conv_dialog {
+    width: 58;
+    height: auto;
+    background: #080808;
+    border: solid #333333;
+    padding: 1 2;
+}
+
+.modal-title {
+    text-style: bold;
+    color: #ffffff;
+    margin-bottom: 1;
+}
+
+.modal-label {
+    color: #a3a3a3;
+    margin-top: 1;
+}
+
+.modal-hint {
+    color: #666666;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+.modal-error {
+    color: #ffffff;
+    text-style: bold;
+    height: auto;
+    margin-bottom: 1;
+}
+
+.modal-buttons {
+    height: auto;
+    align: right middle;
+    margin-top: 1;
+}
+
+.modal-buttons > Button {
+    margin-left: 1;
+    background: #141414;
+    color: #e5e5e5;
+    border: solid #333333;
+}
+
+.modal-buttons > Button:hover {
+    background: #1f1f1f;
+    border: solid #737373;
+}
+
+.modal-buttons > Button.-primary {
+    background: #ffffff;
+    color: #000000;
+    border: solid #ffffff;
+    text-style: bold;
+}
+
+#user_chips_grid {
+    layout: grid;
+    grid-size: 3;
+    grid-gutter: 1;
+    height: auto;
+    max-height: 9;
+    overflow-y: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+    scrollbar-color: #333333 #080808;
+    scrollbar-size: 1 1;
+}
+
+.user-chip {
+    width: 100%;
+    height: 3;
+    background: #121212;
+    color: #a3a3a3;
+    border: solid #333333;
+    content-align: center middle;
+    text-align: center;
+}
+
+.user-chip:hover {
+    border: solid #737373;
+    color: #ffffff;
+}
+
+.user-chip.selected {
+    background: #ffffff;
+    color: #000000;
+    border: solid #ffffff;
+    text-style: bold;
+}
+
+.user-chip.locked {
+    background: #e5e5e5;
+    color: #000000;
+    border: solid #ffffff;
+    text-style: bold;
+}
 """
 
 

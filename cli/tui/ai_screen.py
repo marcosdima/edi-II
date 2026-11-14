@@ -20,6 +20,7 @@ class AIScreen(BaseTUIScreen):
         CommandSpec("/model", "Switch active LLM model (or reset)", args="<name>"),
         CommandSpec("/temp", "Set sampling temperature", args="<0.0-2.0>"),
         CommandSpec("/sys", "Set system prompt (empty to reset)", args="<prompt>"),
+        CommandSpec("/info", "Show AI provider & proxy metadata", aliases=("info",)),
         CommandSpec("/clear", "Clear conversation log", aliases=("clear", "cls")),
         CommandSpec("/back", "Return to main menu", aliases=("/exit", "/quit")),
     ]
@@ -148,15 +149,28 @@ class AIScreen(BaseTUIScreen):
             parts = text.split()
             if len(parts) > 1:
                 try:
-                    self.temperature = float(parts[1])
-                    log.write(format_system_event(f"Temperature set to {self.temperature}"))
+                    val = float(parts[1])
+                    if not 0.0 <= val <= 2.0:
+                        log.write(format_system_event("Temperature must be between 0.0 and 2.0."))
+                    else:
+                        self.temperature = val
+                        log.write(format_system_event(f"Temperature set to {self.temperature}"))
                 except ValueError:
                     log.write(format_system_event("Invalid temperature."))
+            else:
+                log.write(format_system_event(f"Current temperature: {self.temperature}"))
             return
         elif text.startswith("/sys"):
             parts = text.split(maxsplit=1)
-            self.system_prompt = parts[1].strip() if len(parts) > 1 else None
+            arg = parts[1].strip() if len(parts) > 1 else ""
+            if not arg or arg.lower() in ("reset", "clear", "none"):
+                self.system_prompt = None
+            else:
+                self.system_prompt = arg
             log.write(format_system_event(f"System prompt: {self.system_prompt or 'Default'}"))
+            return
+        elif text.lower() in ("/info", "info"):
+            self.fetch_info()
             return
         elif text.startswith("/"):
             log.write(

@@ -191,7 +191,7 @@ class ChatScreen(BaseTUIScreen):
 
         if res.status_code == 201:
             m = self.client.safe_json(res)
-            msg_id = int(m.get("id", self.last_seen_id + 1))
+            msg_id = int(m.get("id", 0))
             if msg_id > self.last_seen_id:
                 formatted = format_chat_message(
                     sender=self.current_user,
@@ -214,19 +214,8 @@ class ChatScreen(BaseTUIScreen):
             elif directive == "/members":
                 members = [escape(m.get("username", "")) for m in data.get("members", [])]
                 log.write(format_system_event(f"Participants: {', '.join(members)}"))
-            elif directive == "/clear":
-                log.clear()
-                log.write(format_system_event(data.get("message", "History cleared.")))
             elif directive == "/leave":
                 log.write(format_system_event(data.get("message", "Left conversation.")))
-            elif directive == "/help":
-                log.write(format_system_event("Available Directives:"))
-                for d in data.get("available_directives", []):
-                    log.write(
-                        format_system_event(
-                            f"  {escape(d.get('command', '')):<20} {escape(d.get('description', ''))}"
-                        )
-                    )
             else:
                 log.write(format_system_event(f"Directive executed: {escape(res.text)}"))
         elif res.status_code == 400:
@@ -242,6 +231,37 @@ class ChatScreen(BaseTUIScreen):
             )
         else:
             log.write(format_system_event(f"Error ({res.status_code}): {escape(res.text)}"))
+
+    @work(thread=True)
+    def _switch_user_worker(self, username: str) -> None:
+        self.api_post(
+            "/api/chat/auth/register",
+            {"username": username, "display_name": username.capitalize()},
+        )
+        res = self.api_get(f"/api/chat/users/{username}/conversations")
+        is_member = True
+        if res and res.status_code == 200:
+            convs = self.client.safe_json(res).get("conversations", [])
+            is_member = any(c.get("id") == self.conv_id for c in convs)
+        self.app.call_from_thread(self._handle_switch_user_result, username, is_member)
+
+    def _handle_switch_user_result(self, username: str, is_member: bool) -> None:
+        if not is_member:
+            if len(self.app.screen_stack) > 1:
+                self.app.pop_screen()
+                try:
+                    self.app.screen.query_one(RichLog).write(
+                        format_system_event(
+                            f"User '{escape(username)}' is not a participant in '{escape(self.conv_title)}'."
+                        )
+                    )
+                except Exception:
+                    pass
+            return
+
+        self.query_one(RichLog).write(
+            format_system_event(f"Active user switched to '{escape(username)}'.")
+        )
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Process message submission or system directives."""
@@ -259,19 +279,14 @@ class ChatScreen(BaseTUIScreen):
         if text.startswith("/login") or text.startswith("login "):
             parts = text.split()
             if len(parts) > 1:
-                self.current_user = parts[1].strip().lower()
+                new_user = parts[1].strip().lower()
+                self.current_user = new_user
                 app_state: Any = self.app
-                app_state.current_user = self.current_user
-                self.api_post(
-                    "/api/chat/auth/register",
-                    {"username": self.current_user, "display_name": self.current_user.capitalize()},
-                )
+                app_state.current_user = new_user
                 self.query_one("#chat_user_meta", Label).update(
                     f"user: {self.current_user}  |  https"
                 )
-                log.write(
-                    format_system_event(f"Active user switched to '{escape(self.current_user)}'.")
-                )
+                self._switch_user_worker(new_user)
             else:
                 log.write(format_system_event("Usage: /login <username>"))
             return

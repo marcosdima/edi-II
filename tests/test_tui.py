@@ -7,7 +7,7 @@ from textual.widgets import Input
 from cli.tui.ai_screen import AIScreen
 from cli.tui.app import ProxyApp
 from cli.tui.chat_screen import ChatScreen
-from cli.tui.inbox_screen import InboxScreen
+from cli.tui.inbox_screen import InboxScreen, NewConversationModal, UserChip
 from cli.tui.main_screen import MainScreen
 from cli.tui.theme import format_card, format_chat_message, format_dot_matrix, format_system_event
 
@@ -211,6 +211,10 @@ def test_inbox_screen_actions():
                 inp.value = "users"
                 await pilot.press("enter")
 
+                # Test typing bare '/' does not crash
+                inp.value = "/"
+                await pilot.press("enter")
+
                 # Test switching user with /login
                 inp.value = "/login profe"
                 await pilot.press("enter")
@@ -286,5 +290,126 @@ def test_main_screen_cards_and_ai_slash_commands():
                 await pilot.press("enter")
                 await pilot.pause()
                 mock_ai_post.assert_not_called()
+
+    asyncio.run(_test())
+
+
+def test_inbox_new_conversation_modal():
+    """Verify selecting card 0 opens NewConversationModal with locked Me chip and user chips."""
+
+    async def _test():
+        with (
+            patch.object(InboxScreen, "api_get") as mock_get,
+            patch.object(InboxScreen, "api_post") as mock_post,
+            patch.object(NewConversationModal, "api_get") as mock_modal_get,
+            patch.object(ChatScreen, "api_get") as mock_chat_get,
+        ):
+            mock_get.return_value = MagicMock(
+                status_code=200,
+                json=lambda: {"conversations": [], "title": "Proyecto Final", "messages": []},
+            )
+            mock_modal_get.return_value = MagicMock(
+                status_code=200,
+                json=lambda: {
+                    "users": [
+                        {"username": "marcos", "display_name": "Marcos"},
+                        {"username": "profe", "display_name": "Profe"},
+                    ]
+                },
+            )
+            mock_post.return_value = MagicMock(
+                status_code=201,
+                json=lambda: {"conversation_id": 7, "participants": ["marcos", "profe"]},
+            )
+            mock_chat_get.return_value = MagicMock(
+                status_code=200,
+                json=lambda: {"title": "Proyecto Final", "messages": []},
+            )
+
+            screen = InboxScreen(current_user="marcos")
+            app: App[None] = App()
+            async with app.run_test() as pilot:
+                await app.push_screen(screen)
+                await pilot.pause()
+
+                # Trigger card 0 -> opens NewConversationModal
+                screen.select_conversation(0)
+                await pilot.pause()
+                await pilot.pause()
+                assert isinstance(app.screen, NewConversationModal)
+
+                # 'Me' chip is selected and cannot be deselected
+                me_chip = app.screen.query_one("#chip_me", UserChip)
+                assert me_chip.selected is True
+                await pilot.click("#chip_me")
+                assert me_chip.selected is True
+
+                # Select 'profe' chip
+                profe_chip = app.screen.query_one("#chip_profe", UserChip)
+                assert profe_chip.selected is False
+                await pilot.click("#chip_profe")
+                assert profe_chip.selected is True
+
+                app.screen.query_one("#modal_title", Input).value = "Proyecto Final"
+                await pilot.click("#btn_create")
+                await pilot.pause()
+
+                mock_post.assert_any_call(
+                    "/api/chat/conversations",
+                    {"title": "Proyecto Final", "participants": ["marcos", "profe"]},
+                )
+
+    asyncio.run(_test())
+
+
+def test_chat_screen_login_non_participant_returns_to_inbox():
+    """Verify switching to a user not in the conversation pops ChatScreen back to InboxScreen."""
+
+    async def _test():
+        with (
+            patch.object(InboxScreen, "api_get") as mock_inbox_get,
+            patch.object(InboxScreen, "api_post") as mock_inbox_post,
+            patch.object(ChatScreen, "api_get") as mock_chat_get,
+            patch.object(ChatScreen, "api_post") as mock_chat_post,
+        ):
+            mock_inbox_get.return_value = MagicMock(
+                status_code=200,
+                json=lambda: {"conversations": []},
+            )
+            mock_inbox_post.return_value = MagicMock(status_code=200, json=lambda: {})
+            mock_chat_post.return_value = MagicMock(status_code=200, json=lambda: {})
+
+            def _chat_get_side_effect(endpoint: str, timeout: int = 8):
+                if endpoint == "/api/chat/conversations/5/messages":
+                    return MagicMock(
+                        status_code=200,
+                        json=lambda: {"title": "Private Room", "messages": []},
+                    )
+                if endpoint == "/api/chat/users/intruder/conversations":
+                    return MagicMock(
+                        status_code=200,
+                        json=lambda: {"conversations": [{"id": 99, "title": "Other"}]},
+                    )
+                return MagicMock(status_code=200, json=lambda: {})
+
+            mock_chat_get.side_effect = _chat_get_side_effect
+
+            app = ProxyApp()
+            async with app.run_test() as pilot:
+                inbox = InboxScreen(current_user="marcos")
+                chat = ChatScreen(conv_id=5, title="Private Room", current_user="marcos")
+                await app.push_screen(inbox)
+                await app.push_screen(chat)
+                await pilot.pause()
+                assert isinstance(app.screen, ChatScreen)
+
+                inp = chat.query_one(Input)
+                inp.value = "/login intruder"
+                await pilot.press("enter")
+                await pilot.pause()
+                await pilot.pause()
+
+                assert isinstance(app.screen, InboxScreen)
+                assert app.current_user == "intruder"
 
     asyncio.run(_test())

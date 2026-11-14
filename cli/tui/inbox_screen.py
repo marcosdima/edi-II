@@ -1,13 +1,16 @@
 from typing import Any
 
+import requests
 from rich.markup import escape
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Grid, Vertical
-from textual.widgets import Input, Label, RichLog, Static
+from textual.containers import Grid, Horizontal, Vertical
+from textual.screen import ModalScreen
+from textual.widgets import Button, Input, Label, RichLog, Static
 
-from ..config import ProxyConfig
+from ..client import ProxyClient
+from ..config import ProxyConfig, get_proxy_config, parse_new_conversation_args
 from .base_screen import BaseTUIScreen, CommandSpec
 from .chat_screen import ChatScreen
 from .theme import (
@@ -20,6 +23,121 @@ from .theme import (
     format_message_preview,
     format_system_event,
 )
+
+
+class UserChip(Static):
+    """Clickable rectangular chip representing a user in the conversation creator."""
+
+    def __init__(
+        self,
+        username: str,
+        *,
+        selected: bool = False,
+        locked: bool = False,
+        id: str | None = None,
+    ) -> None:
+        self.username = username
+        self.selected = selected or locked
+        self.locked = locked
+        classes = (
+            "user-chip locked" if locked else ("user-chip selected" if selected else "user-chip")
+        )
+        super().__init__(self._render_label(), classes=classes, id=id)
+
+    def _render_label(self) -> str:
+        if self.locked:
+            return f"● Me ({escape(self.username)})"
+        prefix = "✓" if self.selected else "+"
+        return f"{prefix} {escape(self.username)}"
+
+    def on_click(self) -> None:
+        if self.locked:
+            return
+        self.selected = not self.selected
+        self.set_class(self.selected, "selected")
+        self.update(self._render_label())
+
+
+class NewConversationModal(ModalScreen[tuple[str, list[str]] | None]):
+    """Minimalist modal dialog to create a new chat conversation with user chips."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(self, current_user: str, config: ProxyConfig | None = None) -> None:
+        super().__init__()
+        self.current_user = current_user
+        self.config = config or get_proxy_config()
+        self.client = ProxyClient(self.config)
+
+    def api_get(self, endpoint: str, timeout: int = 8) -> requests.Response | None:
+        """Fetch helper delegating to ProxyClient (easy to mock in tests)."""
+        return self.client.get(endpoint, timeout=timeout)
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="new_conv_dialog"):
+            yield Label("NEW CONVERSATION", classes="modal-title")
+            yield Label("Room title (optional)", classes="modal-label")
+            yield Input(
+                placeholder="e.g. Proyecto Final (blank = Conver #ID)",
+                classes="tui-input",
+                id="modal_title",
+            )
+            yield Label("Participants (click to select)", classes="modal-label")
+            with Grid(id="user_chips_grid"):
+                yield UserChip(self.current_user, selected=True, locked=True, id="chip_me")
+            yield Label("Loading users...", id="modal_users_status", classes="modal-hint")
+            with Horizontal(classes="modal-buttons"):
+                yield Button("Cancel", id="btn_cancel")
+                yield Button("Create", id="btn_create", variant="primary")
+
+    def on_mount(self) -> None:
+        self.query_one("#modal_title", Input).focus()
+        self._load_users_worker()
+
+    @work(thread=True)
+    def _load_users_worker(self) -> None:
+        res = self.api_get("/api/chat/users")
+        usernames: list[str] = []
+        ok = False
+        if res and res.status_code == 200:
+            ok = True
+            users = self.client.safe_json(res).get("users", [])
+            usernames = [
+                str(u.get("username", "")).strip().lower()
+                for u in users
+                if u.get("username") and str(u.get("username")).strip().lower() != self.current_user
+            ]
+        self.app.call_from_thread(self._populate_user_chips, usernames, ok)
+
+    def _populate_user_chips(self, usernames: list[str], ok: bool) -> None:
+        grid = self.query_one("#user_chips_grid", Grid)
+        status = self.query_one("#modal_users_status", Label)
+        for uname in usernames:
+            grid.mount(UserChip(uname, id=f"chip_{uname}"))
+        if not ok:
+            status.update("Could not load other users (creating solo room).")
+        elif not usernames:
+            status.update("No other registered users yet.")
+        else:
+            status.update(f"{len(usernames)} other user(s) available.")
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def _submit(self) -> None:
+        title = self.query_one("#modal_title", Input).value.strip()
+        participants = [chip.username for chip in self.query(UserChip) if chip.selected]
+        self.dismiss((title, participants))
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "modal_title":
+            self._submit()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn_create":
+            self._submit()
+        else:
+            self.dismiss(None)
 
 
 class ConversationCard(Static):
@@ -221,15 +339,28 @@ class InboxScreen(BaseTUIScreen):
         self.app.pop_screen()
 
     def select_conversation(self, conv_id: int) -> None:
-        """Opens a conversation by ID or triggers creation if 0."""
-        log = self.query_one(RichLog)
+        """Opens a conversation by ID or launches the New Room modal if 0."""
         if conv_id == 0:
-            log.write(
-                f'\n[bold {COLOR_PRIMARY}]Create new room:[/] type [bold {COLOR_FOREGROUND}]new "Title" user1,user2[/]'
+            self.app.push_screen(
+                NewConversationModal(self.current_user, config=self.config),
+                callback=self._on_new_modal_result,
             )
             return
+        self._open_conversation_worker(conv_id)
 
+    def _on_new_modal_result(self, result: tuple[str, list[str]] | None) -> None:
+        if result is None:
+            return
+        title, participants = result
+        self._create_conversation_worker(title, participants)
+
+    @work(thread=True)
+    def _open_conversation_worker(self, conv_id: int) -> None:
         res = self.api_get(f"/api/chat/conversations/{conv_id}/messages")
+        self.app.call_from_thread(self._handle_open_conversation, conv_id, res)
+
+    def _handle_open_conversation(self, conv_id: int, res: requests.Response | None) -> None:
+        log = self.query_one(RichLog)
         if res and res.status_code == 200:
             data = self.client.safe_json(res)
             title = data.get("title", f"Conversation #{conv_id}")
@@ -244,6 +375,77 @@ class InboxScreen(BaseTUIScreen):
         else:
             log.write(format_system_event(f"Conversation #{conv_id} not found."))
 
+    @work(thread=True)
+    def _create_conversation_worker(self, title: str, participants: list[str]) -> None:
+        final_participants = list(participants)
+        if self.current_user not in final_participants:
+            final_participants.append(self.current_user)
+        res = self.api_post(
+            "/api/chat/conversations",
+            {"title": title, "participants": final_participants},
+        )
+        self.app.call_from_thread(self._handle_create_conversation, res)
+
+    def _handle_create_conversation(self, res: requests.Response | None) -> None:
+        log = self.query_one(RichLog)
+        if res and res.status_code == 201:
+            cid = int(self.client.safe_json(res).get("conversation_id", 0))
+            self.action_refresh()
+            if cid > 0:
+                self._open_conversation_worker(cid)
+        else:
+            err_msg = self.client.safe_json(res).get("error") or "Failed to create conversation."
+            log.write(format_system_event(escape(str(err_msg))))
+
+    @work(thread=True)
+    def _register_user_worker(self, new_user: str, display_name: str) -> None:
+        res = self.api_post(
+            "/api/chat/auth/register",
+            {"username": new_user, "display_name": display_name},
+        )
+        self.app.call_from_thread(self._handle_register_result, new_user, res)
+
+    def _handle_register_result(self, new_user: str, res: requests.Response | None) -> None:
+        log = self.query_one(RichLog)
+        if res and res.status_code in (200, 201):
+            self.current_user = new_user
+            app_state: Any = self.app
+            app_state.current_user = self.current_user
+            self.query_one("#inbox_user_meta", Label).update(f"user: {self.current_user}")
+            self.current_page = 0
+            self.action_refresh()
+            status_msg = self.client.safe_json(res).get("status", "registered")
+            log.write(
+                format_system_event(
+                    f"User '{escape(new_user)}' ({status_msg}). Active user switched."
+                )
+            )
+        else:
+            log.write(format_system_event("Failed to register user."))
+
+    @work(thread=True)
+    def _fetch_users_worker(self) -> None:
+        res = self.api_get("/api/chat/users")
+        self.app.call_from_thread(self._handle_users_result, res)
+
+    def _handle_users_result(self, res: requests.Response | None) -> None:
+        log = self.query_one(RichLog)
+        if not res or res.status_code != 200:
+            log.write(format_system_event("Failed to retrieve users."))
+            return
+        users = self.client.safe_json(res).get("users", [])
+        if not users:
+            log.write(format_system_event("No registered users found."))
+            return
+        items: list[str] = []
+        for u in users:
+            un = u.get("username", "")
+            badge = f" [bold {COLOR_PRIMARY}](you)[/]" if un == self.current_user else ""
+            items.append(f"[bold {COLOR_FOREGROUND}]{escape(un)}[/]{badge}")
+        log.write(
+            f"[bold {COLOR_PRIMARY}]Registered Users ({len(users)}):[/] " + "  •  ".join(items)
+        )
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         raw_text = event.value.strip()
         if not raw_text:
@@ -257,6 +459,9 @@ class InboxScreen(BaseTUIScreen):
 
         text = raw_text.lstrip("/")
         parts = text.split()
+        if not parts:
+            self.show_help()
+            return
         cmd = parts[0].lower()
 
         if cmd in ("exit", "back", "quit"):
@@ -286,25 +491,7 @@ class InboxScreen(BaseTUIScreen):
                 return
             new_user = parts[1].strip().lower()
             display_name = " ".join(parts[2:]).strip() or new_user.capitalize()
-            res = self.api_post(
-                "/api/chat/auth/register",
-                {"username": new_user, "display_name": display_name},
-            )
-            if res and res.status_code in (200, 201):
-                self.current_user = new_user
-                app_state: Any = self.app
-                app_state.current_user = self.current_user
-                self.query_one("#inbox_user_meta", Label).update(f"user: {self.current_user}")
-                self.current_page = 0
-                self.action_refresh()
-                status_msg = self.client.safe_json(res).get("status", "registered")
-                log.write(
-                    format_system_event(
-                        f"User '{escape(new_user)}' ({status_msg}). Active user switched."
-                    )
-                )
-            else:
-                log.write(format_system_event("Failed to register user."))
+            self._register_user_worker(new_user, display_name)
             return
         elif cmd == "login":
             if len(parts) < 2:
@@ -321,49 +508,16 @@ class InboxScreen(BaseTUIScreen):
             )
             return
         elif cmd == "users":
-            res = self.api_get("/api/chat/users")
-            if res and res.status_code == 200:
-                users = self.client.safe_json(res).get("users", [])
-                if not users:
-                    log.write(format_system_event("No registered users found."))
-                    return
-                items: list[str] = []
-                for u in users:
-                    un = u.get("username", "")
-                    badge = f" [bold {COLOR_PRIMARY}](you)[/]" if un == self.current_user else ""
-                    items.append(f"[bold {COLOR_FOREGROUND}]{escape(un)}[/]{badge}")
-                log.write(
-                    f"[bold {COLOR_PRIMARY}]Registered Users ({len(users)}):[/] "
-                    + "  •  ".join(items)
-                )
+            self._fetch_users_worker()
             return
         elif cmd == "new":
             raw = text[4:].strip()
-            if not raw:
-                log.write(format_system_event('Usage: new "Title" user1,user2'))
+            parsed = parse_new_conversation_args(raw)
+            if not parsed:
+                self.select_conversation(0)
                 return
-            n_parts = raw.rsplit(maxsplit=1)
-            title = n_parts[0].strip("\"'")
-            users_part = n_parts[1] if len(n_parts) > 1 else ""
-            participants = [
-                u.strip().lower() for u in users_part.replace(" ", "").split(",") if u.strip()
-            ]
-            if self.current_user not in participants:
-                participants.append(self.current_user)
-
-            res = self.api_post(
-                "/api/chat/conversations",
-                {"title": title, "participants": participants},
-            )
-            if res and res.status_code == 201:
-                cid = self.client.safe_json(res).get("conversation_id", 0)
-                self.action_refresh()
-                self.select_conversation(cid)
-            else:
-                err_msg = (
-                    self.client.safe_json(res).get("error") or "Failed to create conversation."
-                )
-                log.write(format_system_event(escape(str(err_msg))))
+            title, participants = parsed
+            self._create_conversation_worker(title, participants)
             return
         else:
             log.write(
