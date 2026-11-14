@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from cli.config import get_proxy_config
+from cli.config import get_proxy_config, parse_new_conversation_args
 from cli.manager import DockerManager
 from cli.terminal import build_parser
 from cli.tester import ProxyTester
@@ -72,7 +72,7 @@ def test_docker_manager_start(mock_which, mock_run):
     )
 
 
-@patch("cli.tester.requests.head")
+@patch("cli.client.requests.head")
 def test_proxy_tester_redirect_success(mock_head):
     """Verify test_http_redirect succeeds when receiving 301 to https."""
     mock_res = MagicMock()
@@ -84,7 +84,7 @@ def test_proxy_tester_redirect_success(mock_head):
     assert tester.test_http_redirect() is True
 
 
-@patch("cli.tester.requests.head")
+@patch("cli.client.requests.head")
 def test_proxy_tester_redirect_failure(mock_head):
     """Verify test_http_redirect fails when server returns 200 or connection error."""
     mock_res = MagicMock()
@@ -98,7 +98,7 @@ def test_proxy_tester_redirect_failure(mock_head):
     assert tester.test_http_redirect() is False
 
 
-@patch("cli.tester.requests.get")
+@patch("cli.client.requests.get")
 def test_proxy_tester_gateway_root(mock_get):
     """Verify gateway root test handles 200 OK."""
     mock_res = MagicMock()
@@ -133,7 +133,7 @@ def test_cli_parser():
     assert args_aud.tail == 15
 
 
-@patch("cli.tester.requests.get")
+@patch("cli.client.requests.get")
 def test_proxy_tester_security_headers(mock_get):
     """Verify security headers validation logic."""
     mock_res = MagicMock()
@@ -150,7 +150,7 @@ def test_proxy_tester_security_headers(mock_get):
     assert tester.test_security_headers() is True
 
 
-@patch("cli.tester.requests.get")
+@patch("cli.client.requests.get")
 def test_proxy_tester_access_control(mock_get):
     """Verify perimeter access control tests for GeoIP and IP blocks."""
     tester = ProxyTester()
@@ -163,7 +163,7 @@ def test_proxy_tester_access_control(mock_get):
     assert tester.test_access_control() is True
 
 
-@patch("cli.tester.requests.get")
+@patch("cli.client.requests.get")
 def test_proxy_tester_rate_limiting(mock_get):
     """Verify rate limiting detection under burst traffic."""
     tester = ProxyTester()
@@ -175,3 +175,18 @@ def test_proxy_tester_rate_limiting(mock_get):
     mock_get.side_effect = mock_responses
 
     assert tester.test_rate_limiting() is True
+
+
+def test_parse_new_conversation_args():
+    """Verify quoted titles, unquoted multi-word titles, and spaced participant lists."""
+    assert parse_new_conversation_args('"Proyecto Final" profe,lucas') == (
+        "Proyecto Final",
+        ["profe", "lucas"],
+    )
+    assert parse_new_conversation_args('"Proyecto Final" profe, lucas') == (
+        "Proyecto Final",
+        ["profe", "lucas"],
+    )
+    assert parse_new_conversation_args("Exam Prep profe") == ("Exam Prep", ["profe"])
+    assert parse_new_conversation_args("SoloRoom") == ("SoloRoom", [])
+    assert parse_new_conversation_args("") is None

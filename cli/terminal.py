@@ -1,6 +1,5 @@
 import argparse
 import cmd
-import os
 import sys
 
 from .config import Colors, get_proxy_config
@@ -55,21 +54,27 @@ Type {Colors.BOLD}'help'{Colors.RESET} to list available commands. Type {Colors.
         service = arg.strip() or None
         DockerManager.restart(service)
 
+    @staticmethod
+    def _parse_tail(parts: list[str], default: int) -> int:
+        for p in parts:
+            if p.startswith("--tail="):
+                try:
+                    return int(p.split("=", 1)[1])
+                except ValueError:
+                    pass
+            elif p.isdigit():
+                return int(p)
+        return default
+
     def do_logs(self, arg: str) -> None:
         """View container logs: logs [service_name] [-f] [--tail=N]"""
         parts = arg.split()
         follow = "-f" in parts
-        tail = 50
-        service = None
-
-        for part in parts:
-            if part.startswith("--tail="):
-                try:
-                    tail = int(part.split("=")[1])
-                except ValueError:
-                    pass
-            elif part != "-f":
-                service = part
+        tail = self._parse_tail(parts, 50)
+        service = next(
+            (p for p in parts if p != "-f" and not p.startswith("--tail=") and not p.isdigit()),
+            None,
+        )
 
         DockerManager.logs(service=service, tail=tail, follow=follow)
 
@@ -112,16 +117,7 @@ Type {Colors.BOLD}'help'{Colors.RESET} to list available commands. Type {Colors.
 
     def do_audit(self, arg: str) -> None:
         """View live Nginx reverse proxy audit logs: audit [--tail=N]"""
-        tail = 25
-        parts = arg.strip().split()
-        for p in parts:
-            if p.startswith("--tail="):
-                try:
-                    tail = int(p.split("=")[1])
-                except ValueError:
-                    pass
-            elif p.isdigit():
-                tail = int(p)
+        tail = self._parse_tail(arg.strip().split(), 25)
         print(Colors.header(f"Nginx Audit Logs (last {tail} entries)"))
         DockerManager.logs(service="reverse-proxy", tail=tail, follow=False)
 
@@ -129,7 +125,7 @@ Type {Colors.BOLD}'help'{Colors.RESET} to list available commands. Type {Colors.
 
     def do_clear(self, arg: str) -> None:
         """Clear the terminal screen: clear"""
-        os.system("clear")
+        print("\033[2J\033[H", end="", flush=True)
 
     def do_urls(self, arg: str) -> None:
         """Show configured target proxy URLs: urls"""

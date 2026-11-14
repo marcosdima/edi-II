@@ -1,5 +1,4 @@
 import cmd
-import os
 from typing import Any
 
 import requests
@@ -18,7 +17,7 @@ class BaseView(cmd.Cmd):
 
     def do_clear(self, arg: str) -> None:
         """Clear the terminal screen: clear"""
-        os.system("clear")
+        print("\033[2J\033[H", end="", flush=True)
 
     def do_back(self, arg: str) -> bool:
         """Return to the previous view: back"""

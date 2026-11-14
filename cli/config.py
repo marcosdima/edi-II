@@ -1,4 +1,5 @@
 import os
+import shlex
 from dataclasses import dataclass
 
 from dotenv import find_dotenv, load_dotenv
@@ -94,3 +95,27 @@ def get_proxy_config() -> ProxyConfig:
         https_url=https_url,
         host=host,
     )
+
+
+def parse_new_conversation_args(raw: str) -> tuple[str, list[str]] | None:
+    """Parse `<title> [user1,user2,...]` supporting quoted titles and spaced commas."""
+    text = raw.strip()
+    if not text:
+        return None
+    try:
+        tokens = shlex.split(text)
+    except ValueError:
+        tokens = text.split()
+    if not tokens:
+        return None
+    if len(tokens) == 1:
+        return tokens[0].strip("\"'"), []
+
+    # Merge trailing comma-separated participant tokens (e.g. `profe, lucas`)
+    idx = len(tokens) - 1
+    while idx > 1 and tokens[idx - 1].endswith(","):
+        idx -= 1
+    users_part = "".join(tokens[idx:])
+    title = " ".join(tokens[:idx]).strip("\"'")
+    participants = [u.strip().lower() for u in users_part.replace(" ", "").split(",") if u.strip()]
+    return title, participants

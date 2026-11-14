@@ -1,6 +1,6 @@
 from typing import Any
 
-from ..config import Colors
+from ..config import Colors, parse_new_conversation_args
 from ..tui import ChatScreen, ProxyApp
 from .base import BaseView
 
@@ -217,17 +217,13 @@ class ChatView(BaseView):
 
     def do_new(self, arg: str) -> None:
         """Create a new conversation: new <title> <user1,user2>"""
-        parts = arg.strip().split(maxsplit=1)
-        if len(parts) < 2:
+        parsed = parse_new_conversation_args(arg)
+        if not parsed or not parsed[1]:
             print(Colors.err("Usage: new <title> <user1,user2,...>"))
             print('Example: new "Proyecto Final" profe,lucas')
             return
 
-        raw_title = parts[0].strip("\"'")
-        raw_users = parts[1].strip()
-        participants = [
-            u.strip().lower() for u in raw_users.replace(" ", "").split(",") if u.strip()
-        ]
+        raw_title, participants = parsed
 
         if self.current_user not in participants:
             participants.append(self.current_user)

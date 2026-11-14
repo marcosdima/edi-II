@@ -16,23 +16,65 @@ class ProxyClient:
     def __init__(self, config: ProxyConfig | None = None) -> None:
         self.config = config or get_proxy_config()
 
-    def get(self, endpoint: str, timeout: int = 8) -> requests.Response | None:
+    def _merge_headers(self, extra: dict[str, str] | None = None) -> dict[str, str] | None:
+        merged = {**self.config.default_headers, **(extra or {})}
+        return merged or None
+
+    def get(
+        self,
+        endpoint: str,
+        timeout: int = 8,
+        headers: dict[str, str] | None = None,
+    ) -> requests.Response | None:
         """Send a GET request to the reverse proxy."""
         url = f"{self.config.https_url}{endpoint}"
-        headers = self.config.default_headers or None
         try:
-            return requests.get(url, headers=headers, verify=False, timeout=timeout)
+            return requests.get(
+                url, headers=self._merge_headers(headers), verify=False, timeout=timeout
+            )
+        except requests.RequestException:
+            return None
+
+    def head(
+        self,
+        endpoint: str,
+        timeout: int = 5,
+        *,
+        use_http: bool = False,
+        allow_redirects: bool = False,
+        headers: dict[str, str] | None = None,
+    ) -> requests.Response | None:
+        """Send a HEAD request to the reverse proxy (HTTP or HTTPS)."""
+        base = self.config.http_url if use_http else self.config.https_url
+        url = f"{base}{endpoint}"
+        try:
+            return requests.head(
+                url,
+                headers=self._merge_headers(headers),
+                allow_redirects=allow_redirects,
+                verify=False,
+                timeout=timeout,
+            )
         except requests.RequestException:
             return None
 
     def post(
-        self, endpoint: str, data: dict[str, Any], timeout: int = 15
+        self,
+        endpoint: str,
+        data: dict[str, Any],
+        timeout: int = 15,
+        headers: dict[str, str] | None = None,
     ) -> requests.Response | None:
         """Send a POST request with JSON payload to the reverse proxy."""
         url = f"{self.config.https_url}{endpoint}"
-        headers = self.config.default_headers or None
         try:
-            return requests.post(url, json=data, headers=headers, verify=False, timeout=timeout)
+            return requests.post(
+                url,
+                json=data,
+                headers=self._merge_headers(headers),
+                verify=False,
+                timeout=timeout,
+            )
         except requests.RequestException:
             return None
 
